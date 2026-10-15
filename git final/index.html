@@ -229,7 +229,7 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
 // 11A. CONFIGURATION AND SHARED STATE
 // API_URL is the backend address. Do not change unless backend URL changes.
 // ---------------------------------------------------------
-const API_URL = 'http://127.0.0.1:8000';
+const API_URL = window.location.origin;
 let authToken = localStorage.getItem('hallel_token') || '';
 let currentUser = {username: localStorage.getItem('hallel_username') || '', role: localStorage.getItem('hallel_role') || ''};
 let inventoryCache = [];
