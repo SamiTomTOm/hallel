@@ -132,6 +132,14 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=10, max_length=200)
     role: Literal["admin", "stock_manager", "salesperson", "management"] = "salesperson"
 
+
+class UserPasswordReset(BaseModel):
+    password: str = Field(min_length=10, max_length=200)
+
+
+class UserRoleUpdate(BaseModel):
+    role: Literal["admin", "stock_manager", "salesperson", "management"]
+
 class VehicleCreate(BaseModel):
     chassis_number: str = Field(min_length=3, max_length=80)
     brand: str = Field(default="", max_length=80)
@@ -241,6 +249,34 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), user: models.Us
 def list_users(db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management"))):
     return [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at.isoformat()} for u in db.query(models.User).order_by(models.User.username).all()]
 
+@app.patch("/auth/users/{user_id}/password")
+def reset_user_password(user_id: int, data: UserPasswordReset, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin"))):
+    target = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+    target.password_hash = hash_password(data.password)
+    db.commit()
+    return {"message": f"Password reset successfully for {target.username}.", "id": target.id, "username": target.username}
+
+
+@app.patch("/auth/users/{user_id}/role")
+def set_user_role(user_id: int, data: UserRoleUpdate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin"))):
+    target = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+    if target.role == "admin" and data.role != "admin" and target.is_active:
+        other_admins = db.query(models.User).filter(
+            models.User.role == "admin",
+            models.User.is_active.is_(True),
+            models.User.id != target.id
+        ).count()
+        if other_admins == 0:
+            raise HTTPException(status_code=400, detail="You cannot remove the role from the last active administrator.")
+    target.role = data.role
+    db.commit()
+    return {"id": target.id, "username": target.username, "role": target.role, "is_active": target.is_active}
+
+
 @app.patch("/auth/users/{user_id}/active")
 def set_user_active(user_id: int, active: bool, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin"))):
     target = db.query(models.User).filter(models.User.id == user_id).first()
@@ -248,6 +284,14 @@ def set_user_active(user_id: int, active: bool, db: Session = Depends(get_db), u
         raise HTTPException(status_code=404, detail="User not found.")
     if target.id == user.id and not active:
         raise HTTPException(status_code=400, detail="You cannot deactivate your own account.")
+    if target.role == "admin" and target.is_active and not active:
+        other_admins = db.query(models.User).filter(
+            models.User.role == "admin",
+            models.User.is_active.is_(True),
+            models.User.id != target.id
+        ).count()
+        if other_admins == 0:
+            raise HTTPException(status_code=400, detail="You cannot deactivate the last active administrator.")
     target.is_active = active
     db.commit()
     return {"id": target.id, "username": target.username, "is_active": target.is_active}
