@@ -325,6 +325,148 @@ def list_sales(limit: int = 200, db: Session = Depends(get_db), user: models.Use
     rows = query.order_by(models.Sale.sold_at.desc()).limit(limit).all()
     return [{"id": s.id, "chassis_number": s.chassis_number, "customer_name": s.customer_name, "contact_info": s.contact_info, "sale_price": s.sale_price, "sold_by": s.sold_by, "payment_method": s.payment_method, "bank_name": s.bank_name, "sold_at": s.sold_at.isoformat(), "notes": s.notes} for s in rows]
 
+@app.post("/bookings", status_code=201)
+def create_booking(
+    data: BookingCreate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_roles("admin", "salesperson"))
+):
+    chassis = data.chassis_number.strip().upper()
+
+    vehicle = (
+        db.query(models.Vehicle)
+        .filter(models.Vehicle.chassis_number == chassis)
+        .with_for_update()
+        .first()
+    )
+
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found.")
+
+    if vehicle.status != "In Stock":
+        raise HTTPException(
+            status_code=409,
+            detail=f"This vehicle cannot be booked because its status is '{vehicle.status}'."
+        )
+
+    booking = models.Booking(
+        chassis_number=vehicle.chassis_number,
+        customer_name=data.customer_name.strip(),
+        customer_phone=data.customer_phone.strip(),
+        booked_by=data.booked_by.strip() or user.username,
+        booking_amount=data.booking_amount,
+        notes=data.notes.strip(),
+        status="Booked"
+    )
+
+    vehicle.status = "Booked"
+
+    db.add(booking)
+    db.commit()
+    db.refresh(booking)
+
+    return {
+        "message": "Vehicle booked successfully.",
+        "booking_id": booking.id,
+        "chassis_number": booking.chassis_number,
+        "status": booking.status,
+        "booking_date": booking.booking_date.isoformat()
+    }
+
+
+@app.get("/bookings")
+def list_bookings(
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(
+        require_roles("admin", "management", "stock_manager", "salesperson")
+    )
+):
+    limit = max(1, min(limit, 1000))
+
+    query = db.query(models.Booking).filter(
+        models.Booking.status == "Booked"
+    )
+
+    if user.role == "salesperson":
+        query = query.filter(models.Booking.booked_by == user.username)
+
+    bookings = (
+        query.order_by(models.Booking.booking_date.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "id": b.id,
+            "chassis_number": b.chassis_number,
+            "customer_name": b.customer_name,
+            "customer_phone": b.customer_phone,
+            "booked_by": b.booked_by,
+            "booking_amount": b.booking_amount,
+            "booking_date": b.booking_date.isoformat(),
+            "notes": b.notes,
+            "status": b.status
+        }
+        for b in bookings
+    ]
+
+
+@app.post("/bookings/{booking_id}/cancel")
+def cancel_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_roles("admin", "salesperson"))
+):
+    booking = (
+        db.query(models.Booking)
+        .filter(models.Booking.id == booking_id)
+        .with_for_update()
+        .first()
+    )
+
+    if not booking or booking.status != "Booked":
+        raise HTTPException(
+            status_code=404,
+            detail="Active booking not found."
+        )
+
+    vehicle = (
+        db.query(models.Vehicle)
+        .filter(
+            models.Vehicle.chassis_number == booking.chassis_number
+        )
+        .with_for_update()
+        .first()
+    )
+
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found.")
+
+    if user.role == "salesperson" and booking.booked_by != user.username:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only cancel bookings you recorded."
+        )
+
+    if vehicle.status != "Booked":
+        raise HTTPException(
+            status_code=409,
+            detail=f"The vehicle status is '{vehicle.status}'. The booking cannot be cancelled automatically."
+        )
+
+    booking.status = "Unbooked"
+    vehicle.status = "In Stock"
+
+    db.commit()
+
+    return {
+        "message": "Booking cancelled successfully. Vehicle returned to In Stock.",
+        "booking_id": booking.id,
+        "chassis_number": booking.chassis_number,
+        "status": booking.status
+    }
 @app.post("/transfers", status_code=201)
 def create_transfer(data: TransferCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager"))):
     if data.from_store.strip().casefold() == data.to_store.strip().casefold():
