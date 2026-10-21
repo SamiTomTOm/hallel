@@ -1,558 +1,649 @@
-import os
-from datetime import datetime, timedelta
-from typing import Optional, Literal
+<!doctype html>
+<!-- HALLEL INVENTORY SYSTEM
+     Organized edition: section comments added to make editing easier.
+     Existing IDs, API calls, and application behavior are preserved.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hallel Inventory | Hallel Import Export</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<!-- =========================================================
+     SECTION 1: BASE STYLES (general colors and form controls)
+     ========================================================= -->
+<style>
+:root{color-scheme:dark}body{background:#07110e;color:#e5eee9;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}input,select,textarea{background:#0c1b16!important;border:1px solid #294238!important;color:#f0fdf4!important;border-radius:10px!important;padding:10px 12px!important;width:100%;outline:none}input:focus,select:focus,textarea:focus{border-color:#34d399!important;box-shadow:0 0 0 2px #34d39922}input[type=checkbox]{width:16px;height:16px;accent-color:#34d399}button{transition:.15s}button:disabled{opacity:.5;cursor:not-allowed}.panel{background:#0c1914;border:1px solid #1d352b;border-radius:18px}.nav-active{background:#10b981!important;color:#03130d!important}.muted{color:#91a99d}.badge{padding:4px 9px;border-radius:999px;font-size:11px;font-weight:700}.table-wrap{overflow:auto}th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#91a99d;text-align:left;padding:12px}td{padding:13px 12px;border-top:1px solid #1b3027;font-size:13px;white-space:nowrap}.btn{border-radius:10px;padding:10px 14px;font-weight:700}.btn-green{background:#34d399;color:#052016}.btn-dark{background:#183027;color:#d8eee2}.hidden{display:none!important}.stat{background:linear-gradient(145deg,#10271d,#0b1813);border:1px solid #244234;border-radius:16px;padding:18px}.field-label{display:block;font-size:12px;color:#a8bdb1;margin-bottom:7px}.notice{border-radius:12px;padding:12px 14px;font-size:13px}.toast{position:fixed;right:18px;bottom:18px;z-index:100;max-width:360px;box-shadow:0 10px 40px #0008}
+</style>
 
-from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
-from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import func, inspect, text
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+<!-- =========================================================
+     SECTION 2: HALLEL HYBRID PREMIUM THEME + RESPONSIVE LAYOUT
+     ========================================================= -->
+<style id="hallel-hybrid-theme">
+:root{color-scheme:light;--green:#087f5b;--deep:#073b2e;--ink:#172b25;--muted:#71847b;--line:#e1eae5;--surface:#fff;--canvas:#f3f7f5}
+html,body{min-height:100%;background:var(--canvas)!important;color:var(--ink)!important;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{background:var(--canvas)!important}
+#app{background:var(--canvas);min-height:100vh}
+#app>header{background:#082f25!important;border-color:#164b3b!important;box-shadow:0 5px 20px #0b39250d}
+#app>header .muted{color:#b4d0c4!important}
+#app>header .bg-emerald-400{background:#10b981!important;color:#052e22!important}
+#app main{max-width:none!important;margin:0!important;padding:24px!important;display:grid;grid-template-columns:230px minmax(0,1fr);gap:24px;align-items:start}
+#nav{grid-column:1;grid-row:1;position:sticky;top:104px;display:flex;flex-direction:column;gap:7px;margin:0!important;padding:14px 10px;background:#082f25;border-radius:18px;min-height:calc(100vh - 130px);box-shadow:0 12px 30px #082f2518}
+#nav .nav-btn{width:100%;text-align:left;justify-content:flex-start;border:0!important;background:transparent!important;color:#c8ddd4!important;border-radius:10px;padding:12px 13px!important;font-size:13px}
+#nav .nav-btn:hover{background:#124b3a!important;color:white!important}
+#nav .nav-btn.nav-active{background:#0b8c64!important;color:white!important;box-shadow:0 5px 14px #031e1633}
+#alert{grid-column:2;grid-row:2}
+.tab-content{grid-column:2;grid-row:1;min-width:0}
+#tab-inventory{grid-row:1}
+.panel{background:#fff!important;border:1px solid var(--line)!important;border-radius:17px!important;box-shadow:0 5px 20px #173d2b08!important;color:var(--ink)}
+.stat{background:linear-gradient(140deg,#073b2e,#0c5540)!important;border:1px solid #17664d!important;border-radius:16px!important;padding:20px!important;color:#fff!important;box-shadow:0 8px 22px #073b2e12}
+.stat .muted{color:#bdd9cc!important}.stat .text-emerald-300{color:#6ee7b7!important}.stat .text-amber-300{color:#fcd34d!important}
+input,select,textarea{background:#fff!important;border:1px solid #d4e1da!important;color:#1d342b!important;border-radius:10px!important;padding:11px 12px!important;width:100%;outline:none;box-shadow:0 1px 2px #0b38220a}
+input::placeholder,textarea::placeholder{color:#94a69d!important}
+input:focus,select:focus,textarea:focus{border-color:#10a878!important;box-shadow:0 0 0 3px #10b9811c!important}
+input[type=checkbox]{width:16px;height:16px;accent-color:#087f5b}
+.field-label{color:#52685d!important;font-weight:650}
+.muted{color:var(--muted)!important}
+th{color:#667e71!important;background:#f6faf8;font-size:11px;text-transform:uppercase;letter-spacing:.07em;text-align:left;padding:13px}
+td{padding:14px 12px;border-top:1px solid #edf2ef;font-size:13px;white-space:nowrap;color:#294138}
+tbody tr:hover{background:#f6fbf8}
+.btn{border-radius:10px;padding:10px 14px;font-weight:700;transition:all .16s ease}
+.btn-green{background:#087f5b!important;color:#fff!important;box-shadow:0 4px 10px #087f5b1a}
+.btn-green:hover{background:#06694b!important;transform:translateY(-1px)}
+.btn-dark{background:#edf4f0!important;color:#24483a!important;border:1px solid #dce8e1!important}
+.btn-dark:hover{background:#e0eee6!important}
+.badge{padding:5px 10px;border-radius:999px;font-size:11px;font-weight:750}
+#login-screen{background:radial-gradient(ellipse at top right,#d8f2e4 0,transparent 40%),#f3f7f5!important}
+#login-screen .panel{max-width:440px;border-radius:24px!important;padding:34px!important;box-shadow:0 25px 80px #073b2e16!important}
+#login-screen .bg-emerald-400{background:#0b8c64!important;color:#fff!important}
+#login-screen .text-emerald-400{color:#087f5b!important}
+#login-screen .muted{color:#71847b!important}
+#login-screen h1,#login-screen h2{color:#17372b}
+#vehicle-modal>div{background:#fff!important;color:#17372b!important;border:1px solid #dfeae3!important}
+#vehicle-modal h3{color:#17372b}
+#vehicle-modal .border-emerald-950{border-color:#e1eae5!important}
+#vehicle-modal .text-emerald-300{color:#087f5b!important}
+.toast{border-radius:14px}
 
-from database import Base, engine, get_db
-import models
+/* Consistent Hybrid Premium styling across every workspace tab */
+#app .tab-content h2{color:#17372b!important}
+#app .tab-content h3{color:#17372b!important}
+#app .tab-content .text-blue-300,#app .tab-content .text-purple-300,#app .tab-content .text-rose-300,#app .tab-content .text-emerald-400{color:#087f5b!important}
+#app .tab-content .text-emerald-300{color:#087f5b!important}
+#app .tab-content .panel p,#app .tab-content .panel label{color:inherit}
+#app .tab-content .panel .muted{color:#71847b!important}
+#app .tab-content .panel{background:#fff!important;color:#172b25!important}
+#app .tab-content .panel input,#app .tab-content .panel select,#app .tab-content .panel textarea{background:#fff!important;color:#1d342b!important}
+@media(max-width:900px){#app main{grid-template-columns:1fr;padding:15px!important;gap:16px}#nav{grid-column:1;grid-row:1;position:static;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding:9px;border-radius:14px}#nav .nav-btn{padding:10px!important;font-size:12px}.tab-content,#alert{grid-column:1;grid-row:auto}#tab-inventory{grid-row:auto}}
+@media(max-width:560px){#app>header>div{padding:12px!important}#app main{padding:10px!important}.panel{border-radius:14px!important}#nav{grid-template-columns:repeat(2,minmax(0,1fr))}.stat{padding:15px!important}h2.text-2xl{font-size:1.35rem!important}.table-wrap{margin-left:-4px;margin-right:-4px}td{padding:11px 9px}}
+</style>
 
-load_dotenv()
-Base.metadata.create_all(bind=engine)
 
-def migrate_additive_columns():
-    """Add new optional/defaulted columns to existing databases without deleting data."""
-    additions = {
-        "inventory": {
-            "has_accessories": "BOOLEAN NOT NULL DEFAULT FALSE",
-            "customer_name": "VARCHAR(150) NOT NULL DEFAULT ''",
-        },
-        "sales": {
-            "payment_method": "VARCHAR(20) NOT NULL DEFAULT 'Cash'",
-            "bank_name": "VARCHAR(100) NOT NULL DEFAULT ''",
-        },
+<style id="hallel-dashboard-redesign">
+:root{--green:#087f5b;--deep:#073b2e;--ink:#172b25;--muted:#71847b;--line:#e3ebe6;--canvas:#f1f4f2}
+html,body,#app{background:#f1f4f2!important;color:#172b25!important}
+#app>header{background:#fff!important;color:#17372b!important;border:0!important;box-shadow:0 2px 18px #123d2b0b!important}
+#app>header .muted{color:#71847b!important}#app>header .text-emerald-400{color:#087f5b!important}
+#app>header .bg-emerald-400{background:#e0f2e9!important;color:#087f5b!important}
+#app main{max-width:none!important;padding:22px 26px 30px!important;grid-template-columns:205px minmax(0,1fr)!important;gap:22px!important}
+#nav{grid-column:1;grid-row:1 / span 12;position:sticky;top:92px;display:flex;flex-direction:column;align-items:stretch;gap:6px;margin:0!important;padding:16px 12px;background:#fff!important;border:1px solid #e6ece8;border-radius:20px;min-height:calc(100vh - 115px);box-shadow:0 8px 28px #153b2908}
+#nav:before{content:'HALLEL';display:block;font-weight:900;letter-spacing:.08em;color:#087f5b;padding:7px 12px 22px;font-size:17px}
+#nav .nav-btn{width:100%;text-align:left;justify-content:flex-start;border:0!important;background:transparent!important;color:#71847b!important;border-radius:11px;padding:12px 13px!important;font-size:13px;font-weight:650}
+#nav .nav-btn:before{display:inline-block;width:24px;font-size:15px;color:inherit}
+#nav .nav-btn[data-tab="inventory"]:before{content:'▦'}#nav .nav-btn[data-tab="sales"]:before{content:'↗'}#nav .nav-btn[data-tab="bookings"]:before{content:'▣'}#nav .nav-btn[data-tab="transfers"]:before{content:'⇄'}#nav .nav-btn[data-tab="reports"]:before{content:'▥'}#nav .nav-btn[data-tab="users"]:before{content:'♙'}
+#nav .nav-btn:hover{background:#f0f7f3!important;color:#087f5b!important}
+#nav .nav-btn.nav-active{background:#e4f4eb!important;color:#087f5b!important;box-shadow:inset 3px 0 #087f5b!important}
+#alert{grid-column:2;grid-row:1}.tab-content{grid-column:2;grid-row:1;min-width:0}#tab-inventory{grid-row:1}
+#tab-inventory>div:first-child{padding:4px 2px 2px}#tab-inventory>div:first-child h2{font-size:32px!important;letter-spacing:-.04em}#tab-inventory>div:first-child .text-xs{color:#087f5b!important}
+#tab-inventory .stat{position:relative;overflow:hidden;background:#fff!important;border:1px solid #e6ece8!important;border-radius:18px!important;padding:21px!important;color:#172b25!important;box-shadow:0 5px 20px #173d2b07!important;min-height:126px}
+#tab-inventory .stat:first-child{background:linear-gradient(135deg,#07543d,#0b8b61)!important;border-color:#0b7654!important;color:#fff!important}
+#tab-inventory .stat:first-child .muted{color:#d2eee1!important}
+#tab-inventory .stat .text-emerald-300{color:#087f5b!important}#tab-inventory .stat:first-child .text-emerald-300{color:#fff!important}
+#tab-inventory .panel,#tab-sales .panel,#tab-bookings .panel,#tab-transfers .panel,#tab-reports .panel,#tab-users .panel{border:1px solid #e6ece8!important;border-radius:18px!important;box-shadow:0 5px 20px #173d2b07!important}
+#tab-inventory .panel:first-of-type{padding:18px!important}
+#tab-inventory input,#tab-inventory select{min-height:43px}
+#tab-inventory table{min-width:850px}
+#app .tab-content h2{color:#172b25!important}#app .tab-content h3{color:#17372b!important}
+@media(max-width:900px){#app main{grid-template-columns:1fr!important;padding:14px!important;gap:14px!important}#nav{grid-column:1;grid-row:1;position:static;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding:10px;border-radius:16px}#nav:before{grid-column:1/-1;padding:4px 10px 8px}#nav .nav-btn{padding:10px!important;font-size:12px}#alert{grid-column:1;grid-row:auto}.tab-content,#tab-inventory{grid-column:1;grid-row:auto}}
+@media(max-width:560px){#app main{padding:10px!important}#tab-inventory>div:first-child h2{font-size:27px!important}#tab-inventory .stat{padding:16px!important;min-height:105px}#nav{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+
+
+<style id="brand-sales-light-clean">
+#brand-stock-report .brand-clean-card{background:linear-gradient(145deg,#ffffff 0%,#f7fbf9 100%);border:1px solid #e0ebe5;border-radius:18px;padding:0 0 18px;overflow:hidden;box-shadow:0 5px 18px rgba(17,65,47,.055);transition:transform .18s ease,box-shadow .18s ease;min-width:0}
+#brand-stock-report .brand-card-visual{height:118px;position:relative;overflow:hidden;background:linear-gradient(120deg,#dfece6,#f6faf8)}
+#brand-stock-report .brand-card-visual img{width:100%;height:100%;object-fit:cover;display:block;filter:saturate(.78)}
+#brand-stock-report .brand-card-visual:after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,rgba(12,42,31,.28),transparent 72%);pointer-events:none}
+#brand-stock-report .brand-logo-chip{position:absolute;z-index:1;left:13px;top:12px;min-width:44px;height:40px;padding:0 11px;border-radius:11px;background:rgba(255,255,255,.94);border:1px solid rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center;color:#163b2d;font-size:13px;font-weight:900;letter-spacing:.04em;box-shadow:0 3px 10px #123b2a18}
+#brand-stock-report .brand-card-body{padding:15px 18px 0}
+#brand-stock-report .brand-card-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#brand-stock-report .brand-card-title-row .brand-card-title{margin-top:2px}
+#brand-stock-report .brand-clean-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(17,65,47,.10)}
+#brand-stock-report .brand-card-kicker{font-size:10px;letter-spacing:.14em;font-weight:800;color:#71877d}
+#brand-stock-report .brand-card-title{font-size:20px;font-weight:800;line-height:1.25;margin-top:5px;overflow-wrap:anywhere;color:#17382c}
+#brand-stock-report .brand-card-total{flex-shrink:0;min-width:58px;text-align:center;border-radius:13px;padding:8px 10px;background:#e8f6ee;color:#087f5b;font-size:22px;font-weight:900;line-height:1.1}
+#brand-stock-report .brand-card-total small{display:block;font-size:10px;letter-spacing:.04em;font-weight:700;margin-top:4px;color:#4e7664}
+#brand-stock-report .brand-card-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}
+#brand-stock-report .brand-card-stats>div{padding:12px;border-radius:12px;background:#f0f5f2;border:1px solid #e7efea;min-width:0}
+#brand-stock-report .brand-card-stats span{display:block;font-size:11px;color:#687d73;line-height:1.35}
+#brand-stock-report .brand-card-stats strong{display:block;font-size:27px;line-height:1.1;margin-top:6px;font-weight:900}
+#brand-stock-report .brand-sold-number{color:#d65b58}
+#brand-stock-report .brand-stock-number{color:#07865d}
+#brand-stock-report .brand-card-track{height:8px;background:#e3ebe6;border-radius:999px;overflow:hidden;margin-top:17px}
+#brand-stock-report .brand-card-track span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#21b47e,#087f5b);transition:width .35s ease}
+#brand-stock-report .brand-card-foot{color:#71847b;margin-top:8px;font-weight:700}
+@media(max-width:480px){#brand-stock-report .brand-card-body{padding:13px 15px 0}#brand-stock-report .brand-card-visual{height:100px}#brand-stock-report .brand-card-title{font-size:18px}}
+@media(prefers-reduced-motion:reduce){#brand-stock-report .brand-clean-card,#brand-stock-report .brand-card-track span{transition:none}}
+</style>
+
+</head>
+<body>
+
+<!-- =========================================================
+     SECTION 3: LOGIN SCREEN
+     Edit the sign-in title and login fields here.
+     ========================================================= -->
+<div id="login-screen" class="min-h-screen flex items-center justify-center p-5">
+  <div class="panel w-full max-w-md p-8">
+    <div class="flex items-center gap-3 mb-8"><div class="w-12 h-12 rounded-2xl bg-emerald-400 text-emerald-950 flex items-center justify-center font-black text-xl">H</div><div><h1 class="text-2xl font-black tracking-tight">HALLEL <span class="text-emerald-400">INVENTORY</span></h1><p class="text-xs muted mt-1">Import Export · Vehicle Stock Management</p></div></div>
+    <h2 class="text-lg font-bold mb-2">Sign in to your workspace</h2><p class="text-sm muted mb-6">Use the account provided by your system administrator.</p>
+    <form id="login-form" class="space-y-4"><div><label class="field-label" for="login-username">Username</label><input id="login-username" autocomplete="username" required></div><div><label class="field-label" for="login-password">Password</label><input id="login-password" type="password" autocomplete="current-password" required></div><button class="btn btn-green w-full" type="submit">Sign in</button><p id="login-error" class="text-sm text-rose-300"></p></form>
+  </div>
+</div>
+
+
+<!-- =========================================================
+     SECTION 4: MAIN APP SHELL (header, navigation, alerts)
+     ========================================================= -->
+<div id="app" class="hidden min-h-screen">
+<header class="border-b border-emerald-950 bg-[#091610] sticky top-0 z-20"><div class="max-w-[1600px] mx-auto px-4 md:px-7 py-4 flex flex-wrap items-center justify-between gap-4"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-emerald-400 text-emerald-950 flex items-center justify-center font-black text-lg">H</div><div><h1 class="font-black tracking-tight">HALLEL <span class="text-emerald-400">INVENTORY</span></h1><p class="text-[11px] muted">Vehicle operations dashboard</p></div></div><div class="flex items-center gap-3"><div class="text-right"><div id="current-username" class="text-sm font-semibold"></div><div id="current-role" class="text-[11px] text-emerald-300 capitalize"></div></div><button id="logout-btn" class="btn btn-dark text-sm">Log out</button></div></div></header>
+<main class="max-w-[1600px] mx-auto p-4 md:p-7">
+  <div class="flex flex-wrap gap-2 mb-6" id="nav"><button class="nav-btn nav-active btn btn-dark" data-tab="inventory">Inventory</button><button class="nav-btn btn btn-dark" data-tab="sales">Sales & Checkout</button><button class="nav-btn btn btn-dark" data-tab="bookings">Booked Vehicles</button><button class="nav-btn btn btn-dark" data-tab="transfers">Branch Transfers</button><button class="nav-btn btn btn-dark" data-tab="reports">Reports</button><button id="users-nav" class="nav-btn btn btn-dark hidden" data-tab="users">Staff Accounts</button></div>
+  <div id="alert" class="hidden notice mb-5"></div>
+  <!-- SECTION 5: INVENTORY PAGE -->
+  <section id="tab-inventory" class="tab-content space-y-5">
+    <div class="flex flex-wrap items-end justify-between gap-4"><div><p class="text-xs uppercase tracking-[.2em] text-emerald-400 font-bold">HALLEL · VEHICLE OPERATIONS</p><h2 class="text-2xl md:text-3xl font-black mt-1">Dashboard</h2><p class="muted text-sm mt-1">A clear overview of your vehicle stock and showroom operations.</p></div><div class="flex flex-wrap gap-2"><button id="open-import-btn" class="btn btn-dark">⇧ Import Excel</button><button id="add-vehicle-btn" class="btn btn-green">＋ Receive vehicle</button></div></div>
+
+    <!-- Excel import: preview first; no database changes until the user confirms -->
+    <section id="excel-import-panel" class="hidden panel p-5 md:p-6 space-y-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div><p class="text-xs uppercase tracking-widest text-emerald-400 font-bold">SAFE DATA IMPORT</p><h3 class="text-xl font-black mt-1">Import vehicles from Excel</h3><p class="muted text-sm mt-1">Review new VINs, duplicates, missing fields, and changed details before anything is saved.</p></div>
+        <button type="button" id="close-import-btn" class="btn btn-dark">Close</button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div><label class="field-label" for="excel-file">Excel file (.xlsx or .xls)</label><input id="excel-file" type="file" accept=".xlsx,.xls,.csv"></div>
+        <div><label class="field-label" for="excel-default-branch">Default branch for new vehicles</label><select id="excel-default-branch"><option value="Atlas" selected>Atlas</option><option value="Store">Store</option><option value="Meskel Flower">Meskel Flower</option><option value="Atlas Moges Branch">Atlas Moges Branch</option></select></div>
+        <div><label class="field-label" for="excel-default-type">Default vehicle type (required)</label><select id="excel-default-type"><option value="">Choose type…</option><option value="Fuel">Fuel</option><option value="Hybrid">Hybrid</option><option value="Electric">Electric</option></select></div>
+        <div class="flex items-end"><button type="button" id="analyze-excel-btn" class="btn btn-green w-full" disabled>Analyze spreadsheet</button></div>
+      </div>
+      <p class="muted text-xs">Expected columns: Date, CHASSIS NUMBER, Brand, Model, Color, Year. The importer also recognizes common spelling/heading variations. Ethiopian dates like 21.01.19 are converted to Gregorian dates for storage.</p>
+      <div id="excel-summary" class="hidden grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+      <div id="excel-message" class="notice hidden"></div>
+      <div id="excel-review-wrap" class="hidden space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2"><h4 class="font-bold">Review rows</h4><div class="flex flex-wrap gap-2"><button id="excel-select-new" type="button" class="btn btn-dark">Select valid new rows</button><button id="excel-import-selected" type="button" class="btn btn-green">Import selected rows</button></div></div>
+        <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr><th class="p-2 text-left">Import</th><th class="p-2 text-left">Result</th><th class="p-2 text-left">VIN / Chassis</th><th class="p-2 text-left">Brand</th><th class="p-2 text-left">Model</th><th class="p-2 text-left">Year</th><th class="p-2 text-left">Type</th><th class="p-2 text-left">Color</th><th class="p-2 text-left">Branch</th><th class="p-2 text-left">Review details</th></tr></thead><tbody id="excel-review-rows"></tbody></table></div>
+        <p class="muted text-xs">Existing vehicles are never reset to “In Stock.” Sales, transfer history, and status are not imported or overwritten. Existing rows are skipped unless you explicitly select specific changed/missing fields to update.</p>
+      </div>
+    </section>
+
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3"><div class="stat"><p class="muted text-sm">Total vehicles</p><p id="stat-total" class="text-3xl font-black mt-2">—</p><p class="text-xs muted mt-2">All registered vehicles</p></div><div class="stat"><p class="muted text-sm">Available in stock</p><p id="stat-stock" class="text-3xl font-black text-emerald-300 mt-2">—</p><p class="text-xs muted mt-2">Ready for sale</p></div><div class="stat"><p class="muted text-sm">Sold vehicles</p><p id="stat-sold" class="text-3xl font-black text-amber-300 mt-2">—</p><p class="text-xs muted mt-2">Completed sales</p></div></div>
+    <!-- QUICK ACTIONS: full dashboard width; buttons share one row on desktop -->
+    <div class="panel p-5 w-full"><div class="flex items-center justify-between gap-3"><div><h3 class="font-bold text-lg">Quick actions</h3><p class="muted text-xs mt-1">Common inventory tasks</p></div><span style="font-size:22px;color:#087f5b">✳</span></div><div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-5"><button type="button" class="btn btn-green w-full whitespace-nowrap" onclick="document.getElementById('add-vehicle-btn').click()">＋ Receive vehicle</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('sales')">↗ Record a sale</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('transfers')">⇄ Transfer branch</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('reports')">▥ View reports</button></div><p class="muted text-xs mt-4">Use the navigation on the left to access every workspace.</p></div>
+    <div class="panel p-4"><div class="grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-3"><input id="inventory-search" placeholder="Search VIN, brand or model…"><select id="inventory-status"><option value="all">All statuses</option><option value="In Stock">In Stock</option><option value="Booked">Booked</option><option value="Sold">Sold</option></select><button id="refresh-inventory" class="btn btn-dark">Refresh</button></div><div class="table-wrap mt-4"><table class="w-full"><thead><tr><th>Vehicle</th><th>VIN / Chassis</th><th>Year / Type</th><th>Color</th><th>Branch</th><th>Accessories</th><th>Received</th><th>Status</th><th>Action</th></tr></thead><tbody id="inventory-body"><tr><td colspan="9" class="muted">Loading inventory…</td></tr></tbody></table></div></div>
+  </section>
+  <!-- SECTION 6: SALES & CHECKOUT PAGE -->
+  <section id="tab-sales" class="tab-content hidden space-y-5"><div><p class="text-xs uppercase tracking-[.2em] text-blue-300 font-bold">Sales operations</p><h2 class="text-2xl md:text-3xl font-black mt-1">Record a vehicle sale</h2><p class="muted text-sm mt-1">Enter the VIN to confirm the vehicle before submitting the sale.</p></div>
+    <!-- Bulk sales import: preview and validate before creating sales -->
+    <section id="sales-excel-panel" class="panel p-5 md:p-6 space-y-4">
+      <div><p class="text-xs uppercase tracking-widest text-emerald-700 font-bold">SAFE SALES IMPORT</p><h3 class="text-xl font-black mt-1">Import sales from Excel</h3><p class="muted text-sm mt-1">Upload a sales register, review each row, then import selected sales. Vehicle details from the spreadsheet are shown in the preview. Only vehicles currently marked In Stock can be sold, and every sale needs a sale price.</p></div>
+      <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end"><div><label class="field-label" for="sales-excel-file">Sales spreadsheet (.xlsx, .xls or .csv)</label><input id="sales-excel-file" type="file" accept=".xlsx,.xls,.csv"></div><button id="sales-analyze-btn" type="button" class="btn btn-green" disabled>Analyze sales file</button></div>
+      <p class="text-xs muted">Recognizes your Atlas Weekly Report headings too: CHASSIS NUMER, brand, MODEL, acceries, charger, key, card, COLOR, year, type, sold by, cash /bank, Bank and cosutomer Name. Sale Price is still required to record a sale.</p>
+      <div id="sales-excel-message" class="notice hidden"></div><div id="sales-excel-summary" class="hidden grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+      <div id="sales-excel-review-wrap" class="hidden space-y-3"><div class="flex flex-wrap items-center justify-between gap-2"><h4 class="font-bold">Review sales rows</h4><div class="flex flex-wrap gap-2"><button type="button" id="sales-select-valid" class="btn btn-dark">Select valid rows</button><button type="button" id="sales-import-selected" class="btn btn-green">Import selected sales</button></div></div>
+      <div class="table-wrap"><table class="w-full text-sm"><thead><tr><th>Import</th><th>Status</th><th>VIN / Chassis</th><th>Vehicle details from Excel</th><th>Customer</th><th>Contact</th><th>Sale price (USD)</th><th>Sold by</th><th>Payment</th><th>Bank</th><th>Notes / issues</th></tr></thead><tbody id="sales-excel-rows"></tbody></table></div></div>
+    </section>
+    <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-5"><form id="sale-form" class="panel p-5 space-y-4"><div><label class="field-label" for="sale-vin">VIN / Chassis number *</label><input id="sale-vin" required placeholder="Enter or scan VIN" autocomplete="off"><p id="sale-vehicle-info" class="text-xs text-emerald-300 mt-2" aria-live="polite">Enter a VIN to load the vehicle from inventory.</p></div>
+<div id="sale-vehicle-card" class="hidden rounded-xl border border-emerald-900/20 p-4" style="background:rgba(16,185,129,.06)"><div class="font-bold mb-3">Vehicle details from inventory</div><div class="grid grid-cols-1 sm:grid-cols-2 gap-3"><div><label class="field-label" for="sale-vehicle-brand">Brand</label><input id="sale-vehicle-brand" readonly tabindex="-1"></div><div><label class="field-label" for="sale-vehicle-model">Model</label><input id="sale-vehicle-model" readonly tabindex="-1"></div><div><label class="field-label" for="sale-vehicle-year">Year</label><input id="sale-vehicle-year" readonly tabindex="-1"></div><div><label class="field-label" for="sale-vehicle-color">Color</label><input id="sale-vehicle-color" readonly tabindex="-1"></div><div><label class="field-label" for="sale-vehicle-branch">Current branch</label><input id="sale-vehicle-branch" readonly tabindex="-1"></div><div><label class="field-label" for="sale-vehicle-status">Stock status</label><input id="sale-vehicle-status" readonly tabindex="-1"></div></div></div><div><label class="field-label" for="sale-customer">Customer name *</label><input id="sale-customer" required></div><div><label class="field-label">Customer phone / contact</label><input id="sale-contact"></div><div><label class="field-label">Sale price (USD) *</label><input id="sale-price" type="number" min="1" step="0.01" required></div><div><label class="field-label">Payment method *</label><select id="sale-payment-method" required><option value="Cash">Cash</option><option value="Bank">Bank</option></select></div><div id="sale-bank-wrap" class="hidden"><label class="field-label">Bank name *</label><input id="sale-bank-name" placeholder="Which bank processed it"></div><div><label class="field-label" for="sale-sold-by">Sold by *</label><select id="sale-sold-by" required><option value="">Select salesperson</option><option>Yisehak</option><option>Mati</option><option>Moges</option></select></div><div><label class="field-label">Notes</label><textarea id="sale-notes" rows="2"></textarea></div><button class="btn btn-green w-full" type="submit">Confirm and record sale</button></form><div class="panel p-5"><h3 class="font-bold text-lg">Recent sales</h3><p class="muted text-sm mt-1 mb-4">Latest completed transactions.</p><div id="recent-sales" class="space-y-3"><p class="muted text-sm">Loading…</p></div></div></div></section>
+  <!-- SECTION 7: BOOKED VEHICLES PAGE -->
+  <section id="tab-bookings" class="tab-content hidden space-y-5">
+    <div class="flex flex-wrap items-end justify-between gap-3"><div><p class="text-xs uppercase tracking-[.2em] text-emerald-700 font-bold">Customer reservations</p><h2 class="text-2xl md:text-3xl font-black mt-1">Booked vehicles</h2><p class="muted text-sm mt-1">Review active bookings, customer details, and cancel a booking when needed.</p></div><button id="refresh-bookings" type="button" class="btn btn-dark">Refresh bookings</button></div>
+    <div class="panel p-5"><h3 class="font-bold text-lg mb-3">Active bookings</h3><div class="table-wrap"><table class="w-full"><thead><tr><th>Vehicle / VIN</th><th>Customer</th><th>Phone</th><th>Booking amount</th><th>Booked by</th><th>Date</th><th>Notes</th><th>Action</th></tr></thead><tbody id="bookings-body"><tr><td colspan="8" class="muted">Loading bookings…</td></tr></tbody></table></div><p id="bookings-empty" class="muted text-sm mt-3 hidden">There are no active bookings.</p></div>
+  </section>
+  <!-- SECTION 8: BRANCH TRANSFERS PAGE -->
+  <section id="tab-transfers" class="tab-content hidden space-y-5"><div><p class="text-xs uppercase tracking-[.2em] text-purple-300 font-bold">Branch operations</p><h2 class="text-2xl md:text-3xl font-black mt-1">Transfer between branches</h2><p class="muted text-sm mt-1">Transfers update the vehicle's current branch and keep a transfer history.</p></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-5"><form id="transfer-form" class="panel p-5 space-y-4"><div><label class="field-label">VIN / Chassis number *</label><input id="transfer-vin" required></div><div><label class="field-label">From branch *</label><select id="transfer-from" required><option value="">Select source</option><option>Store</option><option>Meskel Flower</option><option>Atlas</option><option>Atlas Moges Branch</option></select></div><div><label class="field-label">To branch *</label><select id="transfer-to" required><option value="">Select destination</option><option>Store</option><option>Meskel Flower</option><option>Atlas</option><option>Atlas Moges Branch</option></select></div><div><label class="field-label">Transferred by *</label><input id="transfer-by" required></div><div><label class="field-label">Notes</label><textarea id="transfer-notes" rows="2"></textarea></div><button class="btn btn-green w-full" type="submit">Record transfer</button></form><div class="panel p-5"><h3 class="font-bold text-lg">Recent transfers</h3><div id="recent-transfers" class="space-y-3 mt-4"><p class="muted text-sm">Loading…</p></div></div></div></section>
+  <!-- SECTION 8: REPORTS PAGE (restricted to management/admin by role) -->
+  <section id="tab-reports" class="tab-content hidden space-y-5"><div><p class="text-xs uppercase tracking-[.2em] text-rose-300 font-bold">Performance</p><h2 class="text-2xl md:text-3xl font-black mt-1">Reports & dashboard</h2></div><div class="grid grid-cols-1 sm:grid-cols-3 gap-3"><div class="stat"><p class="muted text-sm">Total inventory</p><p id="report-total" class="text-3xl font-black mt-2">—</p></div><div class="stat"><p class="muted text-sm">Vehicles in stock</p><p id="report-stock" class="text-3xl font-black text-emerald-300 mt-2">—</p></div><div class="stat"><p class="muted text-sm">Vehicles sold</p><p id="report-sold" class="text-3xl font-black text-amber-300 mt-2">—</p></div></div><div class="panel p-5"><div class="flex flex-wrap items-center justify-between gap-2 mb-4"><div><h3 class="font-bold text-lg">Brand sales & remaining stock</h3><p class="muted text-sm mt-1">Units sold and vehicles still available, grouped by brand</p></div><span class="badge" style="background:#e4f4eb;color:#087f5b">LIVE INVENTORY</span></div><div id="brand-stock-report" class="space-y-4"><p class="muted text-sm">Loading brand data…</p></div></div><div class="grid grid-cols-1 xl:grid-cols-2 gap-5"><div class="panel p-5"><h3 class="font-bold text-lg mb-3">Sales by salesperson</h3><div class="table-wrap"><table class="w-full"><thead><tr><th>Salesperson</th><th>Units sold</th><th>Revenue (USD)</th></tr></thead><tbody id="seller-report"></tbody></table></div></div><div class="panel p-5"><h3 class="font-bold text-lg mb-3">Stock by showroom</h3><p class="muted text-xs mb-4">Available vehicles at each branch</p><div id="branch-report" class="space-y-4"></div></div></div><div class="panel p-5"><h3 class="font-bold text-lg mb-3">Latest sales</h3><div id="report-recent-sales" class="table-wrap"></div></div></section>
+  <!-- SECTION 9: STAFF ACCOUNTS PAGE (admin only) -->
+  <section id="tab-users" class="tab-content hidden space-y-5"><div><p class="text-xs uppercase tracking-[.2em] text-emerald-400 font-bold">Administration</p><h2 class="text-2xl md:text-3xl font-black mt-1">Staff accounts</h2><p class="muted text-sm mt-1">Administrators can create accounts, reset passwords, change roles, and activate or deactivate access.</p></div><div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-5"><form id="user-form" class="panel p-5 space-y-4"><div><label class="field-label">Username *</label><input id="new-username" required minlength="3" pattern="[A-Za-z0-9_.-]+"></div><div><label class="field-label">Temporary password * (10+ characters)</label><input id="new-password" type="password" required minlength="10"></div><div><label class="field-label">Role *</label><select id="new-role"><option value="salesperson">Salesperson</option><option value="stock_manager">Stock Manager</option><option value="management">Management</option><option value="admin">Admin</option></select></div><button class="btn btn-green w-full">Create staff account</button></form><div class="panel p-5"><h3 class="font-bold text-lg mb-3">Current accounts</h3><div id="users-list" class="space-y-3"></div></div></div></section>
+</main></div>
+
+
+<!-- =========================================================
+     SECTION 10: RECEIVE VEHICLE MODAL / FORM
+     Edit vehicle entry fields in this section.
+     ========================================================= -->
+<div id="vehicle-modal" class="hidden fixed inset-0 z-50 bg-black/70 p-3 md:p-6 items-center justify-center"><div class="panel w-full max-w-3xl max-h-[94vh] overflow-auto p-5 md:p-7"><div class="flex items-center justify-between mb-5"><div><p class="text-xs uppercase tracking-widest text-emerald-400 font-bold">Stock receiving</p><h2 class="text-xl font-black mt-1">Receive a vehicle</h2></div><button id="close-modal" class="btn btn-dark">✕</button></div><form id="vehicle-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label class="field-label">VIN / Chassis number *</label><input id="vehicle-vin" required></div><div><label class="field-label">Brand *</label><input id="vehicle-brand" required placeholder="e.g. BYD, Toyota"></div><div><label class="field-label">Model *</label><input id="vehicle-model" required></div><div><label class="field-label">Year *</label><input id="vehicle-year" type="number" min="1980" max="2100" value="2026" required></div><div><label class="field-label">Vehicle type *</label><select id="vehicle-type"><option>Electric</option><option>Hybrid</option><option>Fuel</option></select></div><div><label class="field-label">Color</label><input id="vehicle-color"></div><div><label class="field-label">Body</label><input id="vehicle-body" placeholder="SUV, Sedan, Pickup…"></div><div><label class="field-label">Branch / Store *</label><select id="vehicle-store" required><option value="">Select branch</option><option>Store</option><option>Meskel Flower</option><option>Atlas</option><option>Atlas Moges Branch</option></select></div><div><label class="field-label">Received date</label><input id="vehicle-date" type="date"></div><div><label class="field-label">Received by</label><input id="vehicle-received-by"></div><div class="sm:col-span-2"><span class="field-label">Accessories included</span><div class="flex flex-wrap gap-6"><label class="flex items-center gap-2 text-sm"><input id="vehicle-charger" type="checkbox"> Charger</label><label class="flex items-center gap-2 text-sm"><input id="vehicle-accessories" type="checkbox"> Accessories</label><label class="flex items-center gap-2 text-sm"><input id="vehicle-key" type="checkbox"> Key</label><label class="flex items-center gap-2 text-sm"><input id="vehicle-card" type="checkbox"> Card</label></div></div><div><label class="field-label">Customer name (optional)</label><input id="vehicle-customer" placeholder="If already known"></div><div class="sm:col-span-2"><label class="field-label">Notes</label><textarea id="vehicle-notes" rows="2"></textarea></div><div class="sm:col-span-2 flex justify-end gap-2"><button type="button" id="cancel-modal" class="btn btn-dark">Cancel</button><button type="submit" class="btn btn-green">Save to inventory</button></div></form></div></div>
+
+<!-- Booking form modal: structured form instead of browser prompt dialogs -->
+<div id="booking-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-3 md:p-6 items-center justify-center">
+  <div class="panel w-full max-w-2xl max-h-[94vh] overflow-auto p-5 md:p-7">
+    <div class="flex items-center justify-between gap-3 mb-5">
+      <div><p class="text-xs uppercase tracking-widest font-bold" style="color:#087f5b">Customer reservation</p><h2 class="text-xl font-black mt-1">Book a vehicle</h2><p class="muted text-sm mt-1">Enter the customer's details below.</p></div>
+      <button type="button" id="close-booking-modal" class="btn btn-dark">✕</button>
+    </div>
+    <div class="rounded-xl border p-4 mb-5" style="background:#f3f8f5;border-color:#dce9e1;color:#17372b">
+      <div class="text-xs muted">Selected vehicle</div><div id="booking-vehicle-title" class="font-bold mt-1">—</div><div id="booking-vehicle-vin" class="text-sm mt-1">—</div>
+    </div>
+    <form id="booking-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <input id="booking-vin" type="hidden">
+      <div class="sm:col-span-2"><label class="field-label" for="booking-customer-name">Customer name *</label><input id="booking-customer-name" required autocomplete="name" placeholder="Enter customer's full name"></div>
+      <div><label class="field-label" for="booking-customer-phone">Customer phone</label><input id="booking-customer-phone" type="tel" autocomplete="tel" placeholder="Enter phone number"></div>
+      <div><label class="field-label" for="booking-amount">Booking amount</label><input id="booking-amount" type="number" min="0" step="0.01" value="0" placeholder="0.00"></div>
+      <div><label class="field-label" for="booking-booked-by">Booked by *</label><input id="booking-booked-by" required></div>
+      <div><label class="field-label" for="booking-date">Booking date *</label><input id="booking-date" type="date" required></div>
+      <div class="sm:col-span-2"><label class="field-label" for="booking-notes">Notes</label><textarea id="booking-notes" rows="3" placeholder="Optional details or follow-up notes"></textarea></div>
+      <div class="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2"><button type="button" id="cancel-booking-modal" class="btn btn-dark">Cancel</button><button type="submit" id="save-booking-btn" class="btn btn-green">Confirm booking</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Sale checkout modal: structured popup opened by SOLD buttons -->
+<div id="sale-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-3 md:p-6 items-center justify-center">
+  <div class="panel w-full max-w-2xl max-h-[94vh] overflow-auto p-5 md:p-7">
+    <div class="flex items-center justify-between gap-3 mb-5">
+      <div><p class="text-xs uppercase tracking-widest font-bold" style="color:#087f5b">Sales checkout</p><h2 class="text-xl font-black mt-1">Complete vehicle sale</h2><p class="muted text-sm mt-1">Confirm the vehicle and enter the customer's payment details.</p></div>
+      <button type="button" id="close-sale-modal" class="btn btn-dark">✕</button>
+    </div>
+    <div class="rounded-xl border p-4 mb-5" style="background:#f3f8f5;border-color:#dce9e1;color:#17372b">
+      <div class="text-xs muted">Selected vehicle</div><div id="sale-modal-vehicle-title" class="font-bold mt-1">—</div>
+      <div id="sale-modal-vehicle-vin" class="text-sm mt-1">—</div>
+      <div class="text-sm mt-1">Branch: <span id="sale-modal-vehicle-branch">—</span> · Status: <span id="sale-modal-vehicle-status">—</span></div>
+    </div>
+    <form id="sale-modal-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <input id="sale-modal-vin" type="hidden">
+      <div class="sm:col-span-2"><label class="field-label" for="sale-modal-customer">Customer name *</label><input id="sale-modal-customer" required autocomplete="name" placeholder="Enter customer's full name"></div>
+      <div><label class="field-label" for="sale-modal-contact">Customer phone / contact</label><input id="sale-modal-contact" type="tel" placeholder="Enter phone number"></div>
+      <div><label class="field-label" for="sale-modal-price">Sale price (USD) *</label><input id="sale-modal-price" type="number" min="1" step="0.01" required placeholder="Enter sale price"></div>
+      <div><label class="field-label" for="sale-modal-payment">Payment method *</label><select id="sale-modal-payment" required><option value="Cash">Cash</option><option value="Bank">Bank</option></select></div>
+      <div id="sale-modal-bank-wrap" class="hidden"><label class="field-label" for="sale-modal-bank">Bank name *</label><input id="sale-modal-bank" placeholder="Which bank processed it"></div>
+      <div><label class="field-label" for="sale-modal-sold-by">Sold by *</label><input id="sale-modal-sold-by" required></div>
+      <div class="sm:col-span-2"><label class="field-label" for="sale-modal-notes">Notes</label><textarea id="sale-modal-notes" rows="3" placeholder="Optional notes"></textarea></div>
+      <div id="sale-modal-error" class="hidden sm:col-span-2 notice border border-rose-200 bg-rose-50 text-rose-700"></div>
+      <div class="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2"><button type="button" id="cancel-sale-modal" class="btn btn-dark">Cancel</button><button type="submit" id="save-sale-btn" class="btn btn-green">Confirm and record sale</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Admin-only password reset modal -->
+<div id="user-password-modal" class="hidden fixed inset-0 z-[60] bg-black/50 p-3 md:p-6 items-center justify-center">
+  <div class="panel w-full max-w-md p-5 md:p-7">
+    <div class="flex items-center justify-between gap-3 mb-5">
+      <div><p class="text-xs uppercase tracking-widest font-bold" style="color:#087f5b">Staff account security</p><h2 class="text-xl font-black mt-1">Reset password</h2><p class="muted text-sm mt-1">For <strong id="reset-password-username"></strong></p></div>
+      <button type="button" id="close-user-password-modal" class="btn btn-dark">✕</button>
+    </div>
+    <form id="user-password-form" class="space-y-4">
+      <input id="reset-password-user-id" type="hidden">
+      <div><label class="field-label" for="reset-password-new">New password (10+ characters)</label><input id="reset-password-new" type="password" minlength="10" maxlength="200" autocomplete="new-password" required></div>
+      <div><label class="field-label" for="reset-password-confirm">Confirm new password</label><input id="reset-password-confirm" type="password" minlength="10" maxlength="200" autocomplete="new-password" required></div>
+      <p id="reset-password-error" class="hidden text-sm text-rose-700"></p>
+      <div class="flex justify-end gap-2"><button type="button" id="cancel-user-password-modal" class="btn btn-dark">Cancel</button><button type="submit" id="save-user-password-btn" class="btn btn-green">Reset password</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Toast notification area -->
+<div id="toast" class="toast hidden notice"></div>
+<!-- =========================================================
+     SECTION 11: JAVASCRIPT APPLICATION LOGIC
+     Use the labelled subsections below to find functions.
+     ========================================================= -->
+<script>
+
+// ---------------------------------------------------------
+// 11A. CONFIGURATION AND SHARED STATE
+// API_URL is the backend address. Do not change unless backend URL changes.
+// ---------------------------------------------------------
+const API_URL = window.location.origin;
+let authToken = localStorage.getItem('hallel_token') || '';
+let currentUser = {username: localStorage.getItem('hallel_username') || '', role: localStorage.getItem('hallel_role') || ''};
+let inventoryCache = [];
+// 11B. SHARED HELPERS: find HTML elements, escape text, format money
+const $ = id => document.getElementById(id);
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = value => new Intl.NumberFormat('en-ET',{maximumFractionDigits:2}).format(Number(value || 0));
+// 11C. NOTIFICATIONS AND API REQUEST HANDLING
+function notify(message, error=false){const el=$('toast');el.textContent=message;el.className='toast notice '+(error?'bg-rose-950 text-rose-100 border border-rose-700':'bg-emerald-950 text-emerald-100 border border-emerald-700');el.classList.remove('hidden');setTimeout(()=>el.classList.add('hidden'),4200)}
+function showAlert(message,error=false){const el=$('alert');el.textContent=message;el.className='notice mb-5 '+(error?'bg-rose-950 text-rose-100 border border-rose-700':'bg-emerald-950 text-emerald-100 border border-emerald-700');el.classList.remove('hidden')}
+async function api(path, options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(authToken)headers.Authorization='Bearer '+authToken;const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);let response;try{response=await fetch(API_URL+path,{...options,headers,signal:controller.signal})}catch(e){if(e.name==='AbortError')throw new Error('The API did not respond within 15 seconds. Check the backend terminal.');throw new Error('Cannot reach the API at '+API_URL+'. Make sure the backend is running.')}finally{clearTimeout(timeout)}if(response.status===401&&path!='/auth/login'&&authToken){logout(false);throw new Error('Your session has expired. Please sign in again.')}let data={};try{data=await response.json()}catch{}if(!response.ok)throw new Error(data.detail||data.message||`Request failed (${response.status})`);return data}
+// 11D. LOGIN STATE, LOGOUT, AND STARTUP
+function setLoggedIn(on){$('login-screen').classList.toggle('hidden',on);$('app').classList.toggle('hidden',!on)}
+function logout(showMessage=true){authToken='';currentUser={username:'',role:''};localStorage.removeItem('hallel_token');localStorage.removeItem('hallel_username');localStorage.removeItem('hallel_role');setLoggedIn(false);if(showMessage)notify('You have been logged out.')}
+$('login-form').addEventListener('submit',async e=>{e.preventDefault();const button=$('login-form').querySelector('button[type=submit]');const originalText=button.textContent;button.disabled=true;button.textContent='Signing in…';$('login-error').textContent='';try{const result=await api('/auth/login',{method:'POST',body:JSON.stringify({username:$('login-username').value.trim(),password:$('login-password').value})});authToken=result.access_token;currentUser={username:result.username,role:result.role};localStorage.setItem('hallel_token',authToken);localStorage.setItem('hallel_username',currentUser.username);localStorage.setItem('hallel_role',currentUser.role);await startApp()}catch(err){$('login-error').textContent=err.message}finally{button.disabled=false;button.textContent=originalText}});
+$('logout-btn').addEventListener('click',()=>logout());
+async function startApp(){try{const me=await api('/auth/me');currentUser=me;localStorage.setItem('hallel_role',me.role);$('current-username').textContent=me.username;$('current-role').textContent=me.role.replace('_',' ');if(![...$('sale-sold-by').options].some(o=>o.value===me.username)){const opt=document.createElement('option');opt.value=me.username;opt.textContent=me.username;$('sale-sold-by').appendChild(opt)}$('sale-sold-by').value=me.username;$('transfer-by').value=me.username;$('vehicle-received-by').value=me.username;$('users-nav').classList.toggle('hidden',me.role!=='admin');setLoggedIn(true);await loadInventory();if(['admin','management'].includes(me.role))await loadReports();}catch(e){setLoggedIn(false);if(authToken)$('login-error').textContent=e.message}}
+// 11E. ROLE PERMISSIONS AND TAB NAVIGATION
+function canManageStock(){return ['admin','stock_manager'].includes(currentUser.role)}
+function canSell(){return ['admin','salesperson'].includes(currentUser.role)}
+function canSeeReports(){return ['admin','management'].includes(currentUser.role)}
+function switchTab(tab){if(tab==='users'&&currentUser.role!=='admin'){notify('Only administrators can manage staff accounts.',true);return}if(tab==='reports'&&!canSeeReports()){notify('You do not have permission to view reports.',true);return}if(tab==='sales'&&!canSell()){notify('Your role cannot record sales.',true);return}if(tab==='transfers'&&!canManageStock()){notify('Your role cannot transfer vehicles.',true);return}document.querySelectorAll('.tab-content').forEach(el=>el.classList.add('hidden'));$('tab-'+tab).classList.remove('hidden');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('nav-active',b.dataset.tab===tab));if(tab==='inventory')loadInventory();if(tab==='sales')loadRecentSales();if(tab==='bookings')loadBookings();if(tab==='transfers')loadRecentTransfers();if(tab==='reports')loadReports();if(tab==='users')loadUsers()}
+document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+// 11F. INVENTORY: status display, loading, searching, and refresh
+function statusBadge(status){if(status==='Sold')return '<span class="badge bg-amber-900 text-amber-200">Sold</span>';if(status==='Booked')return '<span class="badge" style="background:#fff0d8;color:#9a5b00">Booked</span>';return '<span class="badge bg-emerald-950 text-emerald-300">In Stock</span>'}
+async function loadInventory(){try{const params=new URLSearchParams();const s=$('inventory-status').value;const q=$('inventory-search').value.trim();if(s!=='all')params.set('status_filter',s);if(q)params.set('search',q);inventoryCache=await api('/inventory?'+params.toString());$('inventory-body').innerHTML=inventoryCache.length?inventoryCache.map(v=>{const vin=encodeURIComponent(v.chassis_number);let actions='';if(v.status==='In Stock'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button><button class="btn btn-dark text-xs" onclick="openBooking('${vin}')">BOOK</button>`:''}${canManageStock()?`<button class="text-emerald-700 font-bold" onclick="editBranch('${vin}')">Edit</button>`:''}</div>`;}else if(v.status==='Booked'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button>`:''}<button class="btn btn-dark text-xs" onclick="switchTab('bookings')">View booking</button></div>`;}else{actions='—';}return `<tr><td><div class="font-bold">${esc(v.brand)} ${esc(v.model)}</div><div class="text-xs muted">${esc(v.body||'—')}</div></td><td class="font-mono text-xs">${esc(v.chassis_number)}</td><td>${esc(v.year)}<div class="text-xs muted">${esc(v.vehicle_type)}</div></td><td>${esc(v.color||'—')}</td><td>${esc(v.store)}</td><td class="text-xs">${v.has_charger?'Charger · ':''}${v.has_accessories?'Accessories · ':''}${v.has_key?'Key · ':''}${v.has_card?'Card':''}${!v.has_charger&&!v.has_accessories&&!v.has_key&&!v.has_card?'—':''}</td><td>${v.received_date?esc(v.received_date.slice(0,10)):'—'}</td><td>${statusBadge(v.status)}</td><td>${actions}</td></tr>`;}).join(''):'<tr><td colspan="9" class="muted">No vehicles match your search.</td></tr>';$('stat-total').textContent=inventoryCache.length;const all=await api('/inventory');$('stat-total').textContent=all.length;$('stat-stock').textContent=all.filter(v=>v.status==='In Stock').length;$('stat-sold').textContent=all.filter(v=>v.status==='Sold').length;// Showroom stock is rendered in the Reports menu.
+}catch(e){showAlert(e.message,true)}}
+// 11G. INVENTORY CONTROLS AND RECEIVE-VEHICLE FORM
+let searchTimer; $('inventory-search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(loadInventory,250)});$('inventory-status').addEventListener('change',loadInventory);$('refresh-inventory').addEventListener('click',loadInventory);
+$('add-vehicle-btn').addEventListener('click',()=>{if(!canManageStock()){notify('Only stock managers and admins can receive vehicles.',true);return}$('vehicle-modal').classList.remove('hidden');$('vehicle-modal').classList.add('flex')});function closeModal(){$('vehicle-modal').classList.add('hidden');$('vehicle-modal').classList.remove('flex')}$('close-modal').addEventListener('click',closeModal);$('cancel-modal').addEventListener('click',closeModal);
+$('vehicle-form').addEventListener('submit',async e=>{e.preventDefault();const receivedDate=$('vehicle-date').value;const data={chassis_number:$('vehicle-vin').value.trim().toUpperCase(),brand:$('vehicle-brand').value.trim(),model:$('vehicle-model').value.trim(),year:Number($('vehicle-year').value),vehicle_type:$('vehicle-type').value,color:$('vehicle-color').value.trim(),body:$('vehicle-body').value.trim(),store:$('vehicle-store').value,has_charger:$('vehicle-charger').checked,has_accessories:$('vehicle-accessories').checked,customer_name:$('vehicle-customer').value.trim(),has_key:$('vehicle-key').checked,has_card:$('vehicle-card').checked,received_date:receivedDate?new Date(receivedDate+'T12:00:00').toISOString():null,received_by:$('vehicle-received-by').value.trim(),notes:$('vehicle-notes').value.trim()};try{await api('/inventory',{method:'POST',body:JSON.stringify(data)});closeModal();$('vehicle-form').reset();$('vehicle-year').value=new Date().getFullYear();notify('Vehicle received and added to inventory.');await loadInventory()}catch(err){notify(err.message,true)}});
+// 11H. EDIT BASIC VEHICLE DETAILS
+window.editBranch=async encodedVin=>{const vin=decodeURIComponent(encodedVin);const v=inventoryCache.find(x=>x.chassis_number===vin);if(!v)return;const color=prompt('Update vehicle color:',v.color||'');if(color===null)return;const body=prompt('Update body type:',v.body||'');if(body===null)return;try{await api('/inventory/'+encodeURIComponent(vin),{method:'PATCH',body:JSON.stringify({color,body})});notify('Vehicle details updated.');loadInventory()}catch(e){notify(e.message,true)}};
+// 11I. SALES: VIN CHECK, SUBMISSION, AND RECENT SALES
+// Fetch vehicle details from the same inventory API/database when the VIN is entered.
+let saleVinLookupTimer=null, saleVinLookupSequence=0, saleVehicleReady=false;
+function clearSaleVehicleDetails(){saleVehicleReady=false;$('sale-vehicle-card').classList.add('hidden');['sale-vehicle-brand','sale-vehicle-model','sale-vehicle-year','sale-vehicle-color','sale-vehicle-branch','sale-vehicle-status'].forEach(id=>$(id).value='')}
+let saleVehicleToSave=null;
+window.sellVehicle=async function(encodedVin){
+  if(!canSell()){notify('You do not have permission to record sales.',true);return}
+  const vin=decodeURIComponent(encodedVin);
+  try{
+    const vehicle=await api('/inventory/'+encodeURIComponent(vin));
+    if(!['In Stock','Booked'].includes(vehicle.status)){notify('This vehicle cannot be sold because its status is '+vehicle.status+'.',true);return}
+    saleVehicleToSave=vehicle;
+    $('sale-modal-vin').value=vehicle.chassis_number;
+    $('sale-modal-vehicle-title').textContent=[vehicle.brand,vehicle.model,vehicle.year].filter(Boolean).join(' ');
+    $('sale-modal-vehicle-vin').textContent='VIN / Chassis: '+vehicle.chassis_number;
+    $('sale-modal-vehicle-branch').textContent=vehicle.store||'—';
+    $('sale-modal-vehicle-status').textContent=vehicle.status||'—';
+    $('sale-modal-customer').value=vehicle.customer_name||'';
+    $('sale-modal-contact').value='';
+    $('sale-modal-price').value='';
+    $('sale-modal-payment').value='Cash';
+    $('sale-modal-bank').value='';
+    $('sale-modal-bank-wrap').classList.add('hidden');
+    $('sale-modal-bank').required=false;
+    $('sale-modal-sold-by').value=currentUser.username||'';
+    $('sale-modal-notes').value='';
+    $('sale-modal-error').classList.add('hidden');
+    $('sale-modal').classList.remove('hidden');$('sale-modal').classList.add('flex');
+    setTimeout(()=>$('sale-modal-customer').focus(),50);
+  }catch(error){notify(error.message,true)}
+};
+function closeSaleModal(){$('sale-modal').classList.add('hidden');$('sale-modal').classList.remove('flex');saleVehicleToSave=null}
+$('close-sale-modal').addEventListener('click',closeSaleModal);
+$('cancel-sale-modal').addEventListener('click',closeSaleModal);
+$('sale-modal').addEventListener('click',e=>{if(e.target===$('sale-modal'))closeSaleModal()});
+$('sale-modal-payment').addEventListener('change',()=>{
+  const isBank=$('sale-modal-payment').value==='Bank';
+  $('sale-modal-bank-wrap').classList.toggle('hidden',!isBank);$('sale-modal-bank').required=isBank;
+  if(!isBank)$('sale-modal-bank').value='';
+});
+$('sale-modal-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!canSell()){notify('You do not have permission to record sales.',true);return}
+  if(!saleVehicleToSave){notify('Select a vehicle before recording a sale.',true);return}
+  if(!confirm('Confirm this vehicle sale? The inventory status will change to Sold.'))return;
+  const btn=$('save-sale-btn');btn.disabled=true;btn.textContent='Recording sale…';
+  $('sale-modal-error').classList.add('hidden');
+  const data={chassis_number:$('sale-modal-vin').value.trim().toUpperCase(),customer_name:$('sale-modal-customer').value.trim(),contact_info:$('sale-modal-contact').value.trim(),sale_price:Number($('sale-modal-price').value),payment_method:$('sale-modal-payment').value,bank_name:$('sale-modal-bank').value.trim(),sold_by:$('sale-modal-sold-by').value.trim()||currentUser.username,notes:$('sale-modal-notes').value.trim()};
+  try{
+    await api('/sales',{method:'POST',body:JSON.stringify(data)});
+    const wasBooked=saleVehicleToSave.status==='Booked';
+    closeSaleModal();notify('Sale recorded. Inventory status updated to Sold.');
+    await loadRecentSales();await loadInventory();if(canSeeReports())await loadReports();if(wasBooked)await loadBookings();
+  }catch(err){$('sale-modal-error').textContent=err.message;$('sale-modal-error').classList.remove('hidden')}
+  finally{btn.disabled=false;btn.textContent='Confirm and record sale'}
+});
+async function lookupSaleVehicle(){const vin=$('sale-vin').value.trim().toUpperCase();$('sale-vin').value=vin;const seq=++saleVinLookupSequence;clearSaleVehicleDetails();$('sale-vehicle-info').classList.remove('text-rose-300');if(!vin){$('sale-vehicle-info').textContent='Enter a VIN to load the vehicle from inventory.';return} $('sale-vehicle-info').textContent='Looking up VIN in inventory…';try{const v=await api('/inventory/'+encodeURIComponent(vin));if(seq!==saleVinLookupSequence)return;$('sale-vehicle-brand').value=v.brand||'';$('sale-vehicle-model').value=v.model||'';$('sale-vehicle-year').value=v.year??'';$('sale-vehicle-color').value=v.color||'';$('sale-vehicle-branch').value=v.store||'';$('sale-vehicle-status').value=v.status||'';$('sale-vehicle-card').classList.remove('hidden');saleVehicleReady=v.status==='In Stock';$('sale-vehicle-info').textContent=saleVehicleReady?'Vehicle found. Details loaded from inventory.':'Vehicle found, but its status is '+(v.status||'unknown')+'. Only vehicles in stock can be sold.';if(!saleVehicleReady)$('sale-vehicle-info').classList.add('text-rose-300')}catch(e){if(seq!==saleVinLookupSequence)return;$('sale-vehicle-info').textContent=e.message; $('sale-vehicle-info').classList.add('text-rose-300')}}
+$('sale-vin').addEventListener('input',()=>{clearTimeout(saleVinLookupTimer);saleVinLookupTimer=setTimeout(lookupSaleVehicle,450)});
+$('sale-vin').addEventListener('change',lookupSaleVehicle);
+$('sale-vin').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();clearTimeout(saleVinLookupTimer);lookupSaleVehicle()}});
+$('sale-payment-method').addEventListener('change',()=>{$('sale-bank-wrap').classList.toggle('hidden',$('sale-payment-method').value!=='Bank');$('sale-bank-name').required=$('sale-payment-method').value==='Bank';if($('sale-payment-method').value!=='Bank')$('sale-bank-name').value=''});
+$('sale-form').addEventListener('submit',async e=>{e.preventDefault();if(!canSell()){notify('You do not have permission to record sales.',true);return}if(!saleVehicleReady){notify('Enter a valid VIN and confirm that the vehicle is in stock before recording the sale.',true);return}if(!confirm('Confirm this vehicle sale? The inventory status will change to Sold.'))return;const data={chassis_number:$('sale-vin').value.trim().toUpperCase(),customer_name:$('sale-customer').value.trim(),contact_info:$('sale-contact').value.trim(),sale_price:Number($('sale-price').value),payment_method:$('sale-payment-method').value,bank_name:$('sale-bank-name').value.trim(),sold_by:$('sale-sold-by').value.trim()||currentUser.username,notes:$('sale-notes').value.trim()};try{await api('/sales',{method:'POST',body:JSON.stringify(data)});notify('Sale recorded. Inventory status updated to Sold.');$('sale-form').reset();$('sale-sold-by').value=currentUser.username;$('sale-vehicle-info').textContent='Enter a VIN to load the vehicle from inventory.';clearSaleVehicleDetails();await loadRecentSales();await loadInventory()}catch(err){notify(err.message,true)}});
+async function loadRecentSales(){try{const rows=await api('/sales?limit=8');$('recent-sales').innerHTML=rows.length?rows.map(s=>`<div class="border-b border-emerald-950 pb-3"><div class="flex justify-between gap-3"><span class="font-semibold text-sm">${esc(s.customer_name)}</span><span class="font-bold text-emerald-300">USD ${money(s.sale_price)}</span></div><div class="text-xs muted mt-1">${esc(s.chassis_number)} · ${esc(s.sold_by)} · ${esc(s.sold_at.slice(0,10))}</div></div>`).join(''):'<p class="muted text-sm">No sales recorded yet.</p>'}catch(e){$('recent-sales').innerHTML=`<p class="text-rose-300 text-sm">${esc(e.message)}</p>`}}
+// 11I2. BOOKINGS: create, list, and cancel active bookings
+let bookingVehicleToSave=null;
+window.openBooking=async encodedVin=>{
+  if(!canSell()){notify('You do not have permission to book vehicles.',true);return}
+  const vin=decodeURIComponent(encodedVin);
+  const vehicle=inventoryCache.find(v=>v.chassis_number===vin);
+  if(!vehicle||vehicle.status!=='In Stock'){notify('Only vehicles currently In Stock can be booked.',true);return}
+  bookingVehicleToSave=vehicle;
+  $('booking-vin').value=vehicle.chassis_number;
+  $('booking-vehicle-title').textContent=[vehicle.brand,vehicle.model,vehicle.year].filter(Boolean).join(' ');
+  $('booking-vehicle-vin').textContent='VIN / Chassis: '+vehicle.chassis_number;
+  $('booking-customer-name').value=vehicle.customer_name||'';
+  $('booking-customer-phone').value='';
+  $('booking-amount').value='0';
+  $('booking-booked-by').value=currentUser.username||'';
+  $('booking-date').value=new Date().toLocaleDateString('en-CA');
+  $('booking-notes').value='';
+  $('booking-modal').classList.remove('hidden');
+  $('booking-modal').classList.add('flex');
+  setTimeout(()=>$('booking-customer-name').focus(),50);
+};
+function closeBookingModal(){
+  $('booking-modal').classList.add('hidden');
+  $('booking-modal').classList.remove('flex');
+  bookingVehicleToSave=null;
+}
+$('close-booking-modal').addEventListener('click',closeBookingModal);
+$('cancel-booking-modal').addEventListener('click',closeBookingModal);
+$('booking-modal').addEventListener('click',e=>{if(e.target===$('booking-modal'))closeBookingModal()});
+$('booking-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!canSell()){notify('You do not have permission to book vehicles.',true);return}
+  if(!bookingVehicleToSave){notify('Select a vehicle before creating a booking.',true);return}
+  const amount=Number($('booking-amount').value||0);
+  if(!Number.isFinite(amount)||amount<0){notify('Booking amount must be zero or a positive number.',true);return}
+  const btn=$('save-booking-btn');btn.disabled=true;
+  try{
+    const bookingDate=$('booking-date').value;
+    const payload={
+      chassis_number:$('booking-vin').value.trim().toUpperCase(),
+      customer_name:$('booking-customer-name').value.trim(),
+      customer_phone:$('booking-customer-phone').value.trim(),
+      booked_by:$('booking-booked-by').value.trim()||currentUser.username,
+      booking_amount:amount,
+      booking_date:bookingDate?new Date(bookingDate+'T12:00:00').toISOString():null,
+      notes:$('booking-notes').value.trim()
+    };
+    await api('/bookings',{method:'POST',body:JSON.stringify(payload)});
+    closeBookingModal();notify('Vehicle booked successfully.');await loadInventory();await loadBookings();
+  }catch(err){notify(err.message,true)}
+  finally{btn.disabled=false}
+});
+async function loadBookings(){
+  const body=$('bookings-body');if(!body)return;
+  try{
+    const rows=await api('/bookings?limit=500');
+    if(!rows.length){body.innerHTML='<tr><td colspan="8" class="muted">No active bookings.</td></tr>';return}
+    const vehicles=await api('/inventory');const byVin=new Map(vehicles.map(v=>[v.chassis_number,v]));
+    body.innerHTML=rows.map(b=>{const v=byVin.get(b.chassis_number);return `<tr><td><div class="font-bold">${esc(v?`${v.brand} ${v.model}`:'Vehicle')}</div><div class="text-xs muted">${esc(b.chassis_number)}</div></td><td>${esc(b.customer_name)}</td><td>${esc(b.customer_phone||'—')}</td><td>${b.booking_amount?money(b.booking_amount):'—'}</td><td>${esc(b.booked_by)}</td><td>${esc((b.booking_date||'').slice(0,10)||'—')}</td><td>${esc(b.notes||'—')}</td><td><button class="btn btn-dark text-xs" onclick="cancelBooking(${Number(b.id)})">UNBOOK</button></td></tr>`}).join('');
+  }catch(e){body.innerHTML=`<tr><td colspan="8" class="text-rose-600">${esc(e.message)}</td></tr>`;}
+}
+window.cancelBooking=async id=>{
+  if(!confirm('Cancel this booking and return the vehicle to In Stock? The booking record will be preserved.'))return;
+  try{const result=await api(`/bookings/${id}/cancel`,{method:'POST',body:JSON.stringify({})});notify(result.message||'Booking cancelled.');await loadBookings();await loadInventory();}
+  catch(e){notify(e.message,true)}
+};
+$('refresh-bookings').addEventListener('click',loadBookings);
+
+// 11J. BRANCH TRANSFERS AND TRANSFER HISTORY
+$('transfer-form').addEventListener('submit',async e=>{e.preventDefault();if(!canManageStock()){notify('You do not have permission to transfer vehicles.',true);return}const data={chassis_number:$('transfer-vin').value.trim().toUpperCase(),from_store:$('transfer-from').value,to_store:$('transfer-to').value,transferred_by:$('transfer-by').value.trim()||currentUser.username,notes:$('transfer-notes').value.trim()};try{await api('/transfers',{method:'POST',body:JSON.stringify(data)});notify('Branch transfer recorded.');$('transfer-form').reset();$('transfer-by').value=currentUser.username;await loadRecentTransfers();await loadInventory()}catch(err){notify(err.message,true)}});
+async function loadRecentTransfers(){try{const rows=await api('/transfers?limit=10');$('recent-transfers').innerHTML=rows.length?rows.map(t=>`<div class="border-b border-emerald-950 pb-3"><div class="font-semibold text-sm">${esc(t.chassis_number)}</div><div class="text-xs muted mt-1">${esc(t.from_store)} → ${esc(t.to_store)}</div><div class="text-xs muted mt-1">${esc(t.transferred_by)} · ${esc(t.transferred_at.slice(0,10))}</div></div>`).join(''):'<p class="muted text-sm">No transfers recorded yet.</p>'}catch(e){$('recent-transfers').innerHTML=`<p class="text-rose-300 text-sm">${esc(e.message)}</p>`}}
+// 11J2. SALES EXCEL IMPORT: validate spreadsheet rows before posting sales
+const salesExcelState={rows:[],seen:new Set()};
+const salesExcelAliases={date:['date','sale date','received date','date received'],vin:['vin','vin number','chassis','chassis number','chassis no','chassis numer','chassis numer','vehicle identification number'],brand:['brand','make'],model:['model','vehicle model'],accessories:['accessories','acceries','accesories','accessory'],charger:['charger','charging cable'],key:['key','keys'],card:['card','key card'],color:['color','colour'],year:['year','model year'],type:['type','vehicle type','fuel type'],customer:['customer','customer name','client name','buyer name','cosutomer name','customer name '],contact:['contact','contact info','phone','phone number','customer phone'],price:['sale price','price','sale price usd','price usd','amount','selling price'],soldBy:['sold by','salesperson','seller','sales person'],payment:['payment method','payment','method','cash or bank','cash /bank','cash bank'],bank:['bank name','bank','processed bank'],notes:['notes','remark','remarks','comment']};
+function salesExcelHeading(v){return String(v??'').trim().toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ')}
+function salesExcelCell(row,key){for(const [k,v] of Object.entries(row)){if(salesExcelAliases[key].includes(salesExcelHeading(k)))return v}return ''}
+function salesExcelMoney(v){if(typeof v==='number')return Number.isFinite(v)&&v>0?v:'';const n=Number(String(v??'').replace(/[,$\s]/g,''));return Number.isFinite(n)&&n>0?n:''}
+function salesExcelNormalize(row,index){let payment=String(salesExcelCell(row,'payment')||'').trim().toLowerCase();payment=payment.includes('bank')?'Bank':payment.includes('cash')?'Cash':'';const yes=v=>/^(ok|yes|y|true|1|available|included)$/i.test(String(v??'').trim());const dateVal=salesExcelCell(row,'date');return {index:index+1,date:String(dateVal??'').trim(),vin:normalizeVin(salesExcelCell(row,'vin')),brand:String(salesExcelCell(row,'brand')??'').trim(),model:String(salesExcelCell(row,'model')??'').trim(),accessories:yes(salesExcelCell(row,'accessories')),charger:yes(salesExcelCell(row,'charger')),key:yes(salesExcelCell(row,'key')),card:yes(salesExcelCell(row,'card')),color:String(salesExcelCell(row,'color')??'').trim(),year:String(salesExcelCell(row,'year')??'').trim(),type:String(salesExcelCell(row,'type')??'').trim(),customer:String(salesExcelCell(row,'customer')??'').trim(),contact:String(salesExcelCell(row,'contact')??'').trim(),price:salesExcelMoney(salesExcelCell(row,'price')),soldBy:String(salesExcelCell(row,'soldBy')||currentUser?.username||'').trim(),payment,bank:String(salesExcelCell(row,'bank')??'').trim(),notes:String(salesExcelCell(row,'notes')??'').trim(),selected:false,valid:false,issues:[],vehicle:null,imported:false}}
+function renderSalesExcel(){const rows=salesExcelState.rows;$('sales-excel-rows').innerHTML=rows.map((r,i)=>{const canSelect=r.valid&&!r.imported;return `<tr class="align-top"><td><input type="checkbox" ${r.selected?'checked':''} ${!canSelect?'disabled':''} onchange="toggleSalesExcelRow(${i},this.checked)"></td><td class="min-w-32"><span class="badge" style="background:${r.imported?'#d1fae5':r.valid?'#dbeafe':'#fee2e2'};color:${r.imported?'#065f46':r.valid?'#1d4ed8':'#991b1b'}">${r.imported?'IMPORTED':r.valid?'READY':'REVIEW'}</span><div class="text-xs muted mt-1">Excel row ${r.index+1}</div></td><td class="min-w-40"><input value="${esc(r.vin)}" onchange="editSalesExcel(${i},'vin',this.value)"></td><td class="min-w-56"><div class="font-semibold">${esc([r.brand,r.model,r.year].filter(Boolean).join(" "))}</div><div class="text-xs muted">${esc([r.color,r.type].filter(Boolean).join(" · "))}</div><div class="text-xs muted">Accessories: ${r.accessories?"Yes":"No"} · Charger: ${r.charger?"Yes":"No"} · Key: ${r.key?"Yes":"No"} · Card: ${r.card?"Yes":"No"}</div><div class="text-xs muted">Date: ${esc(r.date||"—")}</div></td><td class="min-w-40"><input value="${esc(r.customer)}" onchange="editSalesExcel(${i},'customer',this.value)"></td><td class="min-w-32"><input value="${esc(r.contact)}" onchange="editSalesExcel(${i},'contact',this.value)"></td><td class="min-w-32"><input type="number" min="1" step="0.01" value="${esc(r.price)}" onchange="editSalesExcel(${i},'price',this.value)"></td><td class="min-w-32"><input value="${esc(r.soldBy)}" onchange="editSalesExcel(${i},'soldBy',this.value)"></td><td class="min-w-28"><select onchange="editSalesExcel(${i},'payment',this.value)"><option value="Cash" ${r.payment==='Cash'?'selected':''}>Cash</option><option value="Bank" ${r.payment==='Bank'?'selected':''}>Bank</option></select></td><td class="min-w-32"><input value="${esc(r.bank)}" placeholder="Bank name" onchange="editSalesExcel(${i},'bank',this.value)"></td><td class="min-w-56"><textarea rows="2" onchange="editSalesExcel(${i},'notes',this.value)" placeholder="Notes">${esc(r.notes)}</textarea><div class="text-xs ${r.issues.length?'text-rose-600':'text-emerald-700'} mt-1">${r.issues.length?r.issues.map(esc).join('<br>'):'Vehicle is in stock'}</div></td></tr>`}).join('');const counts={ready:rows.filter(r=>r.valid&&!r.imported).length,review:rows.filter(r=>!r.valid&&!r.imported).length,imported:rows.filter(r=>r.imported).length,selected:rows.filter(r=>r.selected).length};$('sales-excel-summary').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="stat p-3"><p class="muted text-xs uppercase">${k}</p><p class="text-2xl font-black mt-1">${v}</p></div>`).join('');$('sales-excel-summary').classList.remove('hidden');$('sales-excel-review-wrap').classList.remove('hidden')}
+async function validateSalesExcelRows(){const seen=new Set();for(const r of salesExcelState.rows){r.issues=[];r.valid=false;r.vehicle=null;if(!r.vin)r.issues.push('Missing VIN/chassis');if(seen.has(r.vin)&&r.vin)r.issues.push('Duplicate VIN in this file');if(r.vin)seen.add(r.vin);if(!r.customer)r.issues.push('Missing customer name');if(!r.price)r.issues.push('Missing/invalid sale price');if(!r.soldBy)r.issues.push('Missing salesperson');if(!r.payment)r.issues.push('Payment method must be Cash or Bank');if(r.payment==='Bank'&&!r.bank)r.issues.push('Bank name required for Bank payment');if(r.issues.length)continue;try{const v=await api('/inventory/'+encodeURIComponent(r.vin));r.vehicle=v;if(v.status!=='In Stock')r.issues.push('Vehicle is '+(v.status||'not available')+'; only In Stock vehicles can be sold')}catch(e){r.issues.push('VIN not found in inventory: '+e.message)}r.valid=r.issues.length===0;r.selected=r.valid&&!r.imported}renderSalesExcel()}
+window.toggleSalesExcelRow=(i,v)=>{salesExcelState.rows[i].selected=v;renderSalesExcel()};
+window.editSalesExcel=(i,field,value)=>{const r=salesExcelState.rows[i];r[field]=field==='vin'?normalizeVin(value):field==='price'?salesExcelMoney(value):String(value??'').trim();r.valid=false;r.selected=false;r.issues=['Row edited; re-analyze to validate changes'];renderSalesExcel()};
+$('sales-excel-file').addEventListener('change',()=>{$('sales-analyze-btn').disabled=!$('sales-excel-file').files.length;$('sales-excel-review-wrap').classList.add('hidden');$('sales-excel-summary').classList.add('hidden');$('sales-excel-message').classList.add('hidden')});
+$('sales-analyze-btn').addEventListener('click',async()=>{try{if(!window.XLSX)throw new Error('Excel reader could not load. Check your internet connection and reload the page.');const file=$('sales-excel-file').files[0];if(!file)throw new Error('Choose a sales spreadsheet first.');const book=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});const sheet=book.Sheets[book.SheetNames[0]];const matrix=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});const headerIndex=matrix.findIndex(row=>row.some(c=>salesExcelAliases.vin.includes(salesExcelHeading(c))));if(headerIndex<0)throw new Error('Could not find a VIN/chassis column in the first worksheet.');const headers=matrix[headerIndex].map(v=>String(v??'').trim());const data=matrix.slice(headerIndex+1).filter(row=>row.some(v=>String(v??'').trim()!==''));salesExcelState.rows=data.map((row,i)=>salesExcelNormalize(Object.fromEntries(headers.map((h,j)=>[h,row[j]??''])),i));if(!salesExcelState.rows.length)throw new Error('No sales rows found under the header row.');await validateSalesExcelRows();$('sales-excel-message').textContent=`Read ${salesExcelState.rows.length} rows from “${file.name}”. Review the rows and select the sales you want to import.`;$('sales-excel-message').className='notice border border-emerald-800 bg-emerald-950/40 text-emerald-200';$('sales-excel-message').classList.remove('hidden')}catch(e){$('sales-excel-message').textContent=e.message;$('sales-excel-message').className='notice border border-rose-800 bg-rose-950/40 text-rose-200';$('sales-excel-message').classList.remove('hidden')}});
+$('sales-select-valid').addEventListener('click',()=>{salesExcelState.rows.forEach(r=>r.selected=r.valid&&!r.imported);renderSalesExcel()});
+$('sales-import-selected').addEventListener('click',async()=>{if(!canSell()){notify('You do not have permission to record sales.',true);return}const selected=salesExcelState.rows.filter(r=>r.selected&&r.valid&&!r.imported);if(!selected.length){notify('Select at least one valid sales row.',true);return}if(!confirm(`Import ${selected.length} sales? Each successful sale will change its vehicle status to Sold.`))return;let success=0;for(const r of selected){try{await api('/sales',{method:'POST',body:JSON.stringify({chassis_number:r.vin,customer_name:r.customer,contact_info:r.contact,sale_price:Number(r.price),sold_by:r.soldBy,payment_method:r.payment,bank_name:r.payment==='Bank'?r.bank:'',notes:r.notes})});r.imported=true;r.selected=false;r.valid=false;r.issues=[];success++}catch(e){r.issues.push('Import failed: '+e.message);r.valid=false;r.selected=false}}renderSalesExcel();$('sales-excel-message').textContent=`Imported ${success} of ${selected.length} selected sales. Rows that failed remain listed for review.`;$('sales-excel-message').className='notice border border-emerald-800 bg-emerald-950/40 text-emerald-200';$('sales-excel-message').classList.remove('hidden');await loadRecentSales();await loadInventory();if(canSeeReports())await loadReports();});
+
+// 11K. REPORTS: inventory totals, salesperson performance, branch stock
+async function loadReports(){if(!canSeeReports())return;try{const r=await api('/reports/summary');const allVehicles=await api('/inventory');const brandMap={};allVehicles.forEach(v=>{const rawBrand=(v.brand||'Unknown brand').trim()||'Unknown brand';const brand=normalizeBrand(rawBrand);const key=brand.toLocaleLowerCase().replace(/\s+/g,' ').trim();if(!brandMap[key])brandMap[key]={brand,sold:0,stock:0,total:0};brandMap[key].total++;if(v.status==='Sold')brandMap[key].sold++;else if(v.status==='In Stock')brandMap[key].stock++;});const brandRows=Object.values(brandMap).sort((a,b)=>b.sold-a.sold||b.stock-a.stock||a.brand.localeCompare(b.brand));const maxBrand=Math.max(1,...brandRows.map(b=>Math.max(b.sold,b.stock)));$('brand-stock-report').innerHTML=brandRows.length?`<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">${brandRows.map((b,i)=>{const soldPct=b.total?Math.round(b.sold/b.total*100):0;return `<article class="brand-clean-card"><div class="brand-card-visual"><img src="https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=900&q=80" alt="Car image representing ${esc(b.brand)}" loading="lazy" onerror="this.style.display='none'"><span class="brand-logo-chip" aria-label="${esc(b.brand)} wordmark">${esc(b.brand.length>13?b.brand.split(/\s+/).map(w=>w[0]).join('').slice(0,3).toUpperCase():b.brand)}</span></div><div class="brand-card-body"><div class="brand-card-title-row"><div><span class="brand-card-kicker">BRAND ${String(i+1).padStart(2,'0')}</span><h4 class="brand-card-title">${esc(b.brand)}</h4></div><span class="brand-card-total">${b.total}<small>Total</small></span></div><div class="brand-card-stats"><div><span>Sold</span><strong class="brand-sold-number">${b.sold}</strong></div><div><span>Remaining in stock</span><strong class="brand-stock-number">${b.stock}</strong></div></div><div class="brand-card-track" aria-label="${soldPct}% sold"><span style="width:${soldPct}%"></span></div><div class="flex justify-between text-xs brand-card-foot"><span>${soldPct}% sold</span><span>${b.total?soldPct===100?'Fully sold':b.stock===0?'Out of stock':'Available':''}</span></div></div></article>`}).join('')}</div>`:'<p class="muted text-sm">No vehicle records available yet.</p>';$('report-total').textContent=r.total_inventory;$('report-stock').textContent=r.in_stock;$('report-sold').textContent=r.sold;$('seller-report').innerHTML=r.by_seller.length?r.by_seller.map(s=>`<tr><td>${esc(s.sold_by)}</td><td>${s.units_sold}</td><td>USD ${money(s.revenue)}</td></tr>`).join(''):'<tr><td colspan="3" class="muted">No sales data yet.</td></tr>';$('branch-report').innerHTML=r.by_store.length?r.by_store.map(b=>`<div><div class="flex justify-between text-sm mb-2"><span>${esc(b.store)}</span><strong>${b.vehicles}</strong></div><div class="h-2 rounded-full bg-slate-800 overflow-hidden"><div class="h-full bg-emerald-400 rounded-full" style="width:${Math.min(100,r.in_stock?b.vehicles/r.in_stock*100:0)}%"></div></div></div>`).join(''):'<p class="muted text-sm">No available stock.</p>';const rows=r.recent_sales;$('report-recent-sales').innerHTML=`<table class="w-full"><thead><tr><th>Date</th><th>VIN</th><th>Customer</th><th>Sold by</th><th>Price</th></tr></thead><tbody>${rows.length?rows.map(s=>`<tr><td>${esc(s.sold_at.slice(0,10))}</td><td>${esc(s.chassis_number)}</td><td>${esc(s.customer_name)}</td><td>${esc(s.sold_by)}</td><td>USD ${money(s.sale_price)}</td></tr>`).join(''):'<tr><td colspan="5" class="muted">No sales yet.</td></tr>'}</tbody></table>`}catch(e){showAlert(e.message,true)}}
+// 11L. STAFF ACCOUNTS: create, reset password, change role, activate/deactivate
+$('user-form').addEventListener('submit',async e=>{e.preventDefault();if(currentUser.role!=='admin')return;try{const result=await api('/auth/users',{method:'POST',body:JSON.stringify({username:$('new-username').value.trim(),password:$('new-password').value,role:$('new-role').value})});notify(`Account created for ${result.username}.`);$('user-form').reset();await loadUsers()}catch(err){notify(err.message,true)}});
+async function loadUsers(){if(currentUser.role!=='admin')return;try{const users=await api('/auth/users');$('users-list').innerHTML=users.map(u=>`<div class="border-b border-emerald-950/10 pb-4 mb-4 space-y-3"><div class="flex flex-wrap items-center justify-between gap-3"><div><div class="font-semibold">${esc(u.username)} ${u.id===Number($('reset-password-user-id').value)?'<span class="text-xs muted">(selected)</span>':''}</div><div class="text-xs muted">${u.is_active?'Active':'Inactive'} · Account #${u.id}</div></div><span class="badge" style="background:${u.is_active?'#e4f4eb':'#fff0d8'};color:${u.is_active?'#087f5b':'#9a5b00'}">${u.is_active?'ACTIVE':'INACTIVE'}</span></div><div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2"><label class="text-xs muted">Role<select id="user-role-${u.id}" class="mt-1"><option value="salesperson" ${u.role==='salesperson'?'selected':''}>Salesperson</option><option value="stock_manager" ${u.role==='stock_manager'?'selected':''}>Stock Manager</option><option value="management" ${u.role==='management'?'selected':''}>Management</option><option value="admin" ${u.role==='admin'?'selected':''}>Admin</option></select></label><button class="btn btn-dark text-xs self-end" onclick="saveUserRole(${u.id},'${esc(u.username)}')">Save role</button></div><div class="flex flex-wrap gap-2"><button class="btn btn-dark text-xs" onclick="openUserPasswordModal(${u.id},'${esc(u.username)}')">Reset password</button><button class="btn ${u.is_active?'btn-dark':'btn-green'} text-xs" onclick="toggleUser(${u.id},${!u.is_active},'${esc(u.username)}')">${u.is_active?'Deactivate account':'Activate account'}</button></div></div>`).join('')||'<p class="muted text-sm">No accounts.</p>'}catch(e){$('users-list').innerHTML=`<p class="text-rose-700 text-sm">${esc(e.message)}</p>`}}
+window.saveUserRole=async(id,username)=>{if(currentUser.role!=='admin')return;const role=$(`user-role-${id}`).value;if(!confirm(`Change ${username}'s role to ${role.replace('_',' ')}? This changes what the account can access.`))return;try{await api(`/auth/users/${id}/role`,{method:'PATCH',body:JSON.stringify({role})});notify(`Role updated for ${username}.`);if(username===currentUser.username&&role!=='admin'){notify('Your role changed. Your current session may need to be refreshed.',true)}await loadUsers()}catch(e){notify(e.message,true)}};
+window.toggleUser=async(id,active,username)=>{if(currentUser.role!=='admin')return;if(!confirm(`${active?'Activate':'Deactivate'} ${username||'this account'}? ${active?'This will allow the account to sign in.':'This prevents the account from signing in.'}`))return;try{await api(`/auth/users/${id}/active?active=${active}`,{method:'PATCH'});notify('Account status updated.');await loadUsers()}catch(e){notify(e.message,true)}};
+window.openUserPasswordModal=(id,username)=>{if(currentUser.role!=='admin')return;$('reset-password-user-id').value=id;$('reset-password-username').textContent=username;$('reset-password-new').value='';$('reset-password-confirm').value='';$('reset-password-error').classList.add('hidden');$('user-password-modal').classList.remove('hidden');$('user-password-modal').classList.add('flex');$('reset-password-new').focus()};
+function closeUserPasswordModal(){$('user-password-modal').classList.add('hidden');$('user-password-modal').classList.remove('flex');$('user-password-form').reset()}
+$('close-user-password-modal').addEventListener('click',closeUserPasswordModal);$('cancel-user-password-modal').addEventListener('click',closeUserPasswordModal);
+$('user-password-form').addEventListener('submit',async e=>{e.preventDefault();if(currentUser.role!=='admin')return;const password=$('reset-password-new').value;const confirmation=$('reset-password-confirm').value;const error=$('reset-password-error');if(password!==confirmation){error.textContent='The passwords do not match.';error.classList.remove('hidden');return}const id=Number($('reset-password-user-id').value);if(!id)return;const button=$('save-user-password-btn');button.disabled=true;button.textContent='Saving…';error.classList.add('hidden');try{const result=await api(`/auth/users/${id}/password`,{method:'PATCH',body:JSON.stringify({password})});closeUserPasswordModal();notify(result.message||'Password reset successfully.');await loadUsers()}catch(err){error.textContent=err.message;error.classList.remove('hidden')}finally{button.disabled=false;button.textContent='Reset password'}});
+
+// 11J. EXCEL IMPORT: analyze, review, and selectively commit rows
+const excelImportState={rows:[],existing:[]};
+const excelFieldAliases={
+  date:['date','received date','stock date'],
+  customer_name:['customer name','customer','client name','buyer name'],
+  chassis_number:['chassis numer','chassis number','chassis no','chassis','vin','vin number','vehicle identification number'],
+  brand:['brand','make'],
+  model:['model','vehicle model'],
+  color:['color','colour'],
+  year:['year','model year']
+};
+function normalizeExcelHeading(v){return String(v??'').trim().toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ')}
+function excelCell(row,field){const aliases=excelFieldAliases[field];for(const [k,v] of Object.entries(row)){if(aliases.includes(normalizeExcelHeading(k)))return v}return ''}
+function normalizeBrand(v){const raw=String(v??'').trim();const key=raw.toLowerCase().replace(/\s+/g,' ');const known={'toyota':'Toyota','byd':'BYD','volswagen':'Volkswagen','volkswagen':'Volkswagen','volks wagon':'Volkswagen','citroen':'Citroën','hycan':'Hycan','honda':'Honda','nissan':'Nissan','kia':'Kia','hyundai':'Hyundai','mercedes benz':'Mercedes-Benz','mercedes-benz':'Mercedes-Benz','bmw':'BMW','audi':'Audi','ford':'Ford','lexus':'Lexus','mitsubishi':'Mitsubishi','mazda':'Mazda'};return known[key]||raw}
+function normalizeVin(v){return String(v??'').trim().toUpperCase().replace(/\s+/g,'')}
+function parseExcelYear(v){if(v===null||v===undefined||String(v).trim()==='')return '';const n=Number(v);return Number.isFinite(n)&&n>=1980&&n<=2100?Math.trunc(n):''}
+function ethiopianDateToGregorian(value){
+  if(value instanceof Date&&!isNaN(value))return value.toISOString();
+  if(typeof value==='number'&&value>20000){const d=XLSX.SSF.parse_date_code(value);if(d)return new Date(Date.UTC(d.y,d.m-1,d.d,12)).toISOString()}
+  const s=String(value??'').trim();if(!s)return '';
+  let m=s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if(m){let day=+m[1],month=+m[2],year=+m[3];if(year<100)year+=2000;
+    if(month>=1&&month<=13&&day>=1&&day<=30&&year>=1900){const gy=year+7;const start=Date.UTC(gy,8,11,12);const d=new Date(start+((month-1)*30+day-1)*86400000);return d.toISOString()}
+    // If the source looks like a Gregorian date, preserve it as Gregorian.
+    if(month<=12&&day<=31){const d=new Date(Date.UTC(year,month-1,day,12));if(!isNaN(d))return d.toISOString()}
+  }
+  const d=new Date(s);return !isNaN(d)?d.toISOString():''
+}
+function importRowFromExcel(raw,index){
+  const vin=normalizeVin(excelCell(raw,'chassis_number'));
+  const brand=normalizeBrand(excelCell(raw,'brand'));
+  const model=String(excelCell(raw,'model')??'').trim();
+  const color=String(excelCell(raw,'color')??'').trim();
+  const year=parseExcelYear(excelCell(raw,'year'));
+  const dateRaw=excelCell(raw,'date');
+  const customer_name=String(excelCell(raw,'customer_name')??'').trim();
+  return {index:index+1,vin,brand,model,color,year,customer_name,vehicle_type:$('excel-default-type').value,received_date:ethiopianDateToGregorian(dateRaw),dateRaw,store:$('excel-default-branch').value,selected:false,fieldSelections:{},kind:'new',issues:[],changes:[],existing:null};
+}
+function sameImportValue(field,a,b){const x=String(a??'').trim().toLowerCase(),y=String(b??'').trim().toLowerCase();return x===y}
+function analyzeImportRows(rows,existing){
+  const byVin=new Map(existing.map(v=>[normalizeVin(v.chassis_number||v.vin),v]));
+  const seenInFile=new Map();
+  rows.forEach(r=>{
+    r.existing=byVin.get(r.vin)||null;r.issues=[];r.changes=[];r.fieldSelections={};
+    if(!r.vin){r.kind='invalid';r.issues.push('Missing VIN/chassis number');return}
+    if(seenInFile.has(r.vin)){r.kind='duplicate';r.selected=false;r.issues.push(`Duplicate VIN in this spreadsheet; first appears on Excel row ${seenInFile.get(r.vin)+2}`);return}
+    seenInFile.set(r.vin,r.index);
+    if(!r.year)r.issues.push('Missing/invalid year');
+    if(!r.model)r.issues.push('Missing model');
+    if(!r.store)r.issues.push('Choose a branch');
+    if(!r.existing){if(!r.vehicle_type)r.issues.push('Choose vehicle type');r.kind='new';r.selected=r.issues.length===0;return}
+    const v=r.existing;
+    const incoming={brand:r.brand,model:r.model,year:r.year,color:r.color};
+    for(const [field,value] of Object.entries(incoming)){
+      const current=v[field];
+      if(value!==''&&value!==null&&value!==undefined&&!sameImportValue(field,value,current)){
+        const change={field,current:current??'',incoming:value,missing:current===null||current===undefined||String(current).trim()===''};
+        r.changes.push(change);
+        // Only missing fields are selected by default; actual changes need explicit review.
+        r.fieldSelections[field]=change.missing;
+      }
     }
-    inspector = inspect(engine)
-    with engine.begin() as connection:
-        for table, columns in additions.items():
-            if table not in inspector.get_table_names():
-                continue
-            existing = {column["name"] for column in inspector.get_columns(table)}
-            for name, definition in columns.items():
-                if name not in existing:
-                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}"))
-
-migrate_additive_columns()
-
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
-SECRET_KEY = os.getenv("SECRET_KEY", "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_BEFORE_DEPLOYMENT")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_MINUTES = int(os.getenv("ACCESS_TOKEN_MINUTES", "480"))
-_default_origins = [
-    "http://127.0.0.1:5500",
-    "http://localhost:5500",
-    "http://127.0.0.1:5501",
-    "http://localhost:5501",
-    "http://127.0.0.1:8000",
-    "http://localhost:8000",
-]
-_env_origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "").split(",") if x.strip()]
-ALLOWED_ORIGINS = list(dict.fromkeys(_default_origins + _env_origins))
-ROLES = {"admin", "stock_manager", "salesperson", "management"}
-
-app = FastAPI(title="Hallel Inventory API", version="2.0.0")
-
-# Allow missing Authorization headers so endpoints can return our own 401 message.
-bearer = HTTPBearer(auto_error=False)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-)
-
-
-# Password hashing uses PBKDF2 from the Python standard library.
-import hashlib, hmac, secrets
-
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 310_000).hex()
-    return f"pbkdf2_sha256$310000${salt}${digest}"
-
-
-def verify_password(password: str, encoded: str) -> bool:
-    try:
-        algorithm, rounds, salt, expected = encoded.split("$", 3)
-        if algorithm != "pbkdf2_sha256":
-            return False
-        actual = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), int(rounds)).hex()
-        return hmac.compare_digest(actual, expected)
-    except (ValueError, TypeError):
-        return False
-
-
-def create_token(user: models.User) -> str:
-    now = datetime.utcnow()
-    payload = {"sub": user.username, "role": user.role, "iat": now, "exp": now + timedelta(minutes=ACCESS_TOKEN_MINUTES)}
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-
-def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer), db: Session = Depends(get_db)) -> models.User:
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Please log in to continue.", headers={"WWW-Authenticate": "Bearer"})
-    try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if not username:
-            raise JWTError("Missing subject")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Session expired or invalid. Please log in again.", headers={"WWW-Authenticate": "Bearer"})
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User is inactive or no longer exists.")
-    return user
-
-
-def require_roles(*roles):
-    def checker(user: models.User = Depends(get_current_user)):
-        if user.role not in roles:
-            raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
-        return user
-    return checker
-
-
-class LoginInput(BaseModel):
-    username: str = Field(min_length=1, max_length=80)
-    password: str = Field(min_length=1, max_length=200)
-
-class UserCreate(BaseModel):
-    username: str = Field(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
-    password: str = Field(min_length=10, max_length=200)
-    role: Literal["admin", "stock_manager", "salesperson", "management"] = "salesperson"
-
-
-class UserPasswordReset(BaseModel):
-    password: str = Field(min_length=10, max_length=200)
-
-
-class UserRoleUpdate(BaseModel):
-    role: Literal["admin", "stock_manager", "salesperson", "management"]
-
-class VehicleCreate(BaseModel):
-    chassis_number: str = Field(min_length=3, max_length=80)
-    brand: str = Field(default="", max_length=80)
-    model: str = Field(min_length=1, max_length=120)
-    year: int = Field(ge=1980, le=2100)
-    vehicle_type: Literal["Fuel", "Hybrid", "Electric"] = "Electric"
-    color: str = Field(default="", max_length=60)
-    body: str = Field(default="", max_length=60)
-    store: str = Field(min_length=1, max_length=100)
-    has_charger: bool = False
-    has_accessories: bool = False
-    has_key: bool = False
-    has_card: bool = False
-    received_date: Optional[datetime] = None
-    received_by: str = Field(default="", max_length=80)
-    customer_name: str = Field(default="", max_length=150)
-    notes: str = Field(default="", max_length=2000)
-
-class SaleCreate(BaseModel):
-    chassis_number: str = Field(min_length=3, max_length=80)
-    customer_name: str = Field(min_length=1, max_length=150)
-    contact_info: str = Field(default="", max_length=80)
-    sale_price: float = Field(gt=0)
-    payment_method: Literal["Cash", "Bank"] = "Cash"
-    bank_name: str = Field(default="", max_length=100)
-    sold_by: str = Field(min_length=1, max_length=80)
-    notes: str = Field(default="", max_length=2000)
-
-
-class BookingCreate(BaseModel):
-    chassis_number: str = Field(min_length=3, max_length=80)
-    customer_name: str = Field(min_length=1, max_length=150)
-    customer_phone: str = Field(default="", max_length=80)
-    booked_by: str = Field(min_length=1, max_length=80)
-    booking_amount: float = Field(default=0, ge=0)
-    notes: str = Field(default="", max_length=2000)
-
-
-class TransferCreate(BaseModel):
-    chassis_number: str = Field(min_length=3, max_length=80)
-    from_store: str = Field(min_length=1, max_length=100)
-    to_store: str = Field(min_length=1, max_length=100)
-    transferred_by: str = Field(min_length=1, max_length=80)
-    notes: str = Field(default="", max_length=2000)
-
-class VehicleUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    brand: Optional[str] = Field(default=None, max_length=80)
-    model: Optional[str] = Field(default=None, max_length=120)
-    year: Optional[int] = Field(default=None, ge=1980, le=2100)
-    vehicle_type: Optional[Literal["Fuel", "Hybrid", "Electric"]] = None
-    color: Optional[str] = Field(default=None, max_length=60)
-    body: Optional[str] = Field(default=None, max_length=60)
-    store: Optional[str] = Field(default=None, max_length=100)
-    has_charger: Optional[bool] = None
-    has_accessories: Optional[bool] = None
-    has_key: Optional[bool] = None
-    has_card: Optional[bool] = None
-    received_by: Optional[str] = Field(default=None, max_length=80)
-    notes: Optional[str] = Field(default=None, max_length=2000)
-
-
-def vehicle_dict(v: models.Vehicle):
-    return {"id": v.id, "chassis_number": v.chassis_number, "vin": v.chassis_number, "brand": v.brand, "model": v.model, "year": v.year, "vehicle_type": v.vehicle_type, "type": v.vehicle_type, "color": v.color, "body": v.body, "store": v.store, "has_charger": v.has_charger, "has_accessories": v.has_accessories, "customer_name": v.customer_name, "has_key": v.has_key, "has_card": v.has_card, "received_date": v.received_date.isoformat() if v.received_date else None, "received_by": v.received_by, "status": v.status, "notes": v.notes, "created_at": v.created_at.isoformat() if v.created_at else None}
-
-
-@app.on_event("startup")
-def create_initial_admin():
-    """Create the first admin only when explicit environment credentials are configured."""
-    username, password = os.getenv("ADMIN_USERNAME"), os.getenv("ADMIN_PASSWORD")
-    if not username or not password:
-        return
-    db = next(get_db())
-    try:
-        if not db.query(models.User).filter(models.User.username == username).first():
-            db.add(models.User(username=username, password_hash=hash_password(password), role="admin"))
-            db.commit()
-    finally:
-        db.close()
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok", "service": "Hallel Inventory API", "version": "2.0.0"}
-
-@app.post("/auth/login")
-def login(data: LoginInput, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.username == data.username).first()
-    if not user or not user.is_active or not verify_password(data.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Incorrect username or password.")
-    return {"access_token": create_token(user), "token_type": "bearer", "username": user.username, "role": user.role, "expires_in_minutes": ACCESS_TOKEN_MINUTES}
-
-@app.get("/auth/me")
-def who_am_i(user: models.User = Depends(get_current_user)):
-    return {"username": user.username, "role": user.role, "is_active": user.is_active}
-
-@app.post("/auth/users", status_code=201)
-def create_user(data: UserCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin"))):
-    if db.query(models.User).filter(models.User.username == data.username).first():
-        raise HTTPException(status_code=409, detail="That username already exists.")
-    record = models.User(username=data.username, password_hash=hash_password(data.password), role=data.role)
-    db.add(record)
-    db.commit()
-    return {"id": record.id, "username": record.username, "role": record.role, "is_active": record.is_active}
-
-@app.get("/auth/users")
-def list_users(db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management"))):
-    return [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at.isoformat()} for u in db.query(models.User).order_by(models.User.username).all()]
-
-@app.patch("/auth/users/{user_id}/password")
-def reset_user_password(user_id: int, data: UserPasswordReset, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin"))):
-    target = db.query(models.User).filter(models.User.id == user_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found.")
-    target.password_hash = hash_password(data.password)
-    db.commit()
-    return {"message": f"Password reset successfully for {target.username}.", "id": target.id, "username": target.username}
-
-
-@app.patch("/auth/users/{user_id}/role")
-def set_user_role(user_id: int, data: UserRoleUpdate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin"))):
-    target = db.query(models.User).filter(models.User.id == user_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found.")
-    if target.role == "admin" and data.role != "admin" and target.is_active:
-        other_admins = db.query(models.User).filter(
-            models.User.role == "admin",
-            models.User.is_active.is_(True),
-            models.User.id != target.id
-        ).count()
-        if other_admins == 0:
-            raise HTTPException(status_code=400, detail="You cannot remove the role from the last active administrator.")
-    target.role = data.role
-    db.commit()
-    return {"id": target.id, "username": target.username, "role": target.role, "is_active": target.is_active}
-
-
-@app.patch("/auth/users/{user_id}/active")
-def set_user_active(user_id: int, active: bool, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin"))):
-    target = db.query(models.User).filter(models.User.id == user_id).first()
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found.")
-    if target.id == user.id and not active:
-        raise HTTPException(status_code=400, detail="You cannot deactivate your own account.")
-    if target.role == "admin" and target.is_active and not active:
-        other_admins = db.query(models.User).filter(
-            models.User.role == "admin",
-            models.User.is_active.is_(True),
-            models.User.id != target.id
-        ).count()
-        if other_admins == 0:
-            raise HTTPException(status_code=400, detail="You cannot deactivate the last active administrator.")
-    target.is_active = active
-    db.commit()
-    return {"id": target.id, "username": target.username, "is_active": target.is_active}
-
-@app.get("/inventory")
-def get_inventory(status_filter: Optional[str] = None, search: Optional[str] = None, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    query = db.query(models.Vehicle)
-    if status_filter and status_filter.lower() != "all":
-        query = query.filter(func.lower(models.Vehicle.status) == status_filter.lower())
-    if search:
-        pattern = f"%{search.strip()}%"
-        query = query.filter((models.Vehicle.chassis_number.ilike(pattern)) | (models.Vehicle.model.ilike(pattern)) | (models.Vehicle.brand.ilike(pattern)))
-    return [vehicle_dict(v) for v in query.order_by(models.Vehicle.created_at.desc()).all()]
-
-@app.get("/inventory/{chassis_number}")
-def get_vehicle(chassis_number: str, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    v = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == chassis_number).first()
-    if not v:
-        raise HTTPException(status_code=404, detail="Vehicle not found.")
-    return vehicle_dict(v)
-
-@app.post("/inventory", status_code=201)
-def add_inventory(data: VehicleCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager"))):
-    vin = data.chassis_number.strip().upper()
-    if db.query(models.Vehicle).filter(models.Vehicle.chassis_number == vin).first():
-        raise HTTPException(status_code=409, detail="A vehicle with this VIN/chassis number already exists.")
-    payload = data.model_dump()
-    payload["chassis_number"] = vin
-    payload["received_date"] = data.received_date or datetime.utcnow()
-    v = models.Vehicle(**payload, status="In Stock")
-    db.add(v)
-    try:
-        db.commit()
-        db.refresh(v)
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="A vehicle with this VIN/chassis number already exists.")
-    return vehicle_dict(v)
-
-@app.patch("/inventory/{chassis_number}")
-def update_inventory(chassis_number: str, data: VehicleUpdate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager"))):
-    v = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == chassis_number).first()
-    if not v:
-        raise HTTPException(status_code=404, detail="Vehicle not found.")
-    changes = data.model_dump(exclude_unset=True)
-    for key, value in changes.items():
-        if value is not None:
-            setattr(v, key, value)
-    db.commit()
-    db.refresh(v)
-    return vehicle_dict(v)
-
-@app.post("/sales", status_code=201)
-def create_sale(data: SaleCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "salesperson"))):
-    v = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == data.chassis_number.strip().upper()).with_for_update().first()
-    if not v:
-        raise HTTPException(status_code=404, detail="Vehicle not found. Check the VIN/chassis number.")
-    if v.status != "In Stock":
-        raise HTTPException(status_code=409, detail=f"This vehicle cannot be sold because its status is '{v.status}'.")
-    if data.payment_method == "Bank" and not data.bank_name.strip():
-        raise HTTPException(status_code=422, detail="Bank name is required when payment method is Bank.")
-    sale = models.Sale(chassis_number=v.chassis_number, customer_name=data.customer_name.strip(), contact_info=data.contact_info.strip(), sale_price=data.sale_price, sold_by=data.sold_by.strip() or user.username, payment_method=data.payment_method, bank_name=data.bank_name.strip() if data.payment_method == "Bank" else "", notes=data.notes)
-    v.status = "Sold"
-    db.add(sale)
-    db.commit()
-    db.refresh(sale)
-    return {"message": "Sale recorded successfully.", "sale_id": sale.id, "chassis_number": sale.chassis_number, "sold_at": sale.sold_at.isoformat()}
-
-@app.get("/sales")
-def list_sales(limit: int = 200, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management", "stock_manager", "salesperson"))):
-    limit = max(1, min(limit, 1000))
-    query = db.query(models.Sale)
-    if user.role == "salesperson":
-        query = query.filter(models.Sale.sold_by == user.username)
-    rows = query.order_by(models.Sale.sold_at.desc()).limit(limit).all()
-    return [{"id": s.id, "chassis_number": s.chassis_number, "customer_name": s.customer_name, "contact_info": s.contact_info, "sale_price": s.sale_price, "sold_by": s.sold_by, "payment_method": s.payment_method, "bank_name": s.bank_name, "sold_at": s.sold_at.isoformat(), "notes": s.notes} for s in rows]
-
-@app.post("/bookings", status_code=201)
-def create_booking(
-    data: BookingCreate,
-    db: Session = Depends(get_db),
-    user: models.User = Depends(require_roles("admin", "salesperson"))
-):
-    chassis = data.chassis_number.strip().upper()
-
-    vehicle = (
-        db.query(models.Vehicle)
-        .filter(models.Vehicle.chassis_number == chassis)
-        .with_for_update()
-        .first()
-    )
-
-    if not vehicle:
-        raise HTTPException(status_code=404, detail="Vehicle not found.")
-
-    if vehicle.status != "In Stock":
-        raise HTTPException(
-            status_code=409,
-            detail=f"This vehicle cannot be booked because its status is '{vehicle.status}'."
-        )
-
-    booking = models.Booking(
-        chassis_number=vehicle.chassis_number,
-        customer_name=data.customer_name.strip(),
-        customer_phone=data.customer_phone.strip(),
-        booked_by=data.booked_by.strip() or user.username,
-        booking_amount=data.booking_amount,
-        notes=data.notes.strip(),
-        status="Booked"
-    )
-
-    vehicle.status = "Booked"
-
-    db.add(booking)
-    db.commit()
-    db.refresh(booking)
-
-    return {
-        "message": "Vehicle booked successfully.",
-        "booking_id": booking.id,
-        "chassis_number": booking.chassis_number,
-        "status": booking.status,
-        "booking_date": booking.booking_date.isoformat()
+    if(r.changes.length===0){r.kind='duplicate';r.selected=false}
+    else if(r.changes.every(c=>c.missing)){r.kind='missing';r.selected=true}
+    else {r.kind='changed';r.selected=false}
+  });
+}
+function importBadge(kind){const map={new:'bg-emerald-950 text-emerald-300',duplicate:'bg-slate-800 text-slate-300',missing:'bg-amber-950 text-amber-300',changed:'bg-orange-950 text-orange-300',invalid:'bg-rose-950 text-rose-300'};return `<span class="rounded-full px-2 py-1 text-xs font-bold ${map[kind]||''}">${({new:'NEW',duplicate:'DUPLICATE',missing:'FILL MISSING',changed:'CHANGED — REVIEW',invalid:'INVALID'})[kind]||kind}</span>`}
+function renderExcelReview(){
+  const rows=excelImportState.rows;
+  $('excel-review-rows').innerHTML=rows.map((r,i)=>{
+    const details=[...r.issues,...r.changes.map(c=>`${c.field}: ${c.missing?'empty → '+c.incoming:String(c.current)+' → '+c.incoming}`)];
+    const canSelect=r.kind==='new'&&!r.issues.length||r.kind==='missing'||r.kind==='changed';
+    const fields=['brand','model','year','color'];
+    return `<tr class="border-t border-emerald-900/40 align-top">
+      <td class="p-2"><input aria-label="Select row ${r.index}" type="checkbox" ${r.selected?'checked':''} ${!canSelect?'disabled':''} onchange="toggleExcelRow(${i},this.checked)"></td>
+      <td class="p-2 min-w-36">${importBadge(r.kind)}<div class="text-xs muted mt-2">Excel row ${r.index+2}</div></td>
+      <td class="p-2 min-w-48"><input value="${esc(r.vin)}" onchange="editExcelRow(${i},'vin',this.value)" aria-label="VIN"></td>
+      <td class="p-2 min-w-32"><input value="${esc(r.brand)}" onchange="editExcelRow(${i},'brand',this.value)" aria-label="Brand"></td>
+      <td class="p-2 min-w-36"><input value="${esc(r.model)}" onchange="editExcelRow(${i},'model',this.value)" aria-label="Model"></td>
+      <td class="p-2 min-w-24"><input type="number" min="1980" max="2100" value="${esc(r.year)}" onchange="editExcelRow(${i},'year',this.value)" aria-label="Year"></td>
+      <td class="p-2 min-w-32"><select onchange="editExcelRow(${i},'vehicle_type',this.value)" aria-label="Vehicle type"><option value="">Choose type…</option>${['Fuel','Hybrid','Electric'].map(t=>`<option value="${t}" ${r.vehicle_type===t?'selected':''}>${t}</option>`).join('')}</select></td>
+      <td class="p-2 min-w-28"><input value="${esc(r.color)}" onchange="editExcelRow(${i},'color',this.value)" aria-label="Color"></td>
+      <td class="p-2 min-w-40"><select onchange="editExcelRow(${i},'store',this.value)" aria-label="Branch">${['Atlas','Store','Meskel Flower','Atlas Moges Branch'].map(b=>`<option ${r.store===b?'selected':''}>${b}</option>`).join('')}</select></td>
+      <td class="p-2 min-w-64"><div class="text-xs ${r.issues.length?'text-rose-300':'muted'}">${details.length?details.map(esc).join('<br>'):'No changes detected.'}</div>${r.changes.length?`<div class="mt-2 space-y-1">${r.changes.map(c=>`<label class="flex items-center gap-2 text-xs"><input type="checkbox" ${r.fieldSelections[c.field]?'checked':''} onchange="toggleExcelField(${i},'${c.field}',this.checked)">Update ${c.field} ${c.missing?'(fill missing)':'(confirm change)'}</label>`).join('')}</div>`:''}</td>
+    </tr>`
+  }).join('');
+  const counts={new:rows.filter(r=>r.kind==='new').length,duplicate:rows.filter(r=>r.kind==='duplicate').length,changed:rows.filter(r=>r.kind==='changed').length,missing:rows.filter(r=>r.kind==='missing').length,invalid:rows.filter(r=>r.kind==='invalid'||r.issues.length).length};
+  $('excel-summary').innerHTML=Object.entries(counts).map(([k,v])=>`<div class="stat p-3"><p class="muted text-xs uppercase">${k==='missing'?'Missing fields':k}</p><p class="text-2xl font-black mt-1">${v}</p></div>`).join('');
+  $('excel-summary').classList.remove('hidden');$('excel-review-wrap').classList.remove('hidden');
+}
+window.toggleExcelRow=(i,value)=>{excelImportState.rows[i].selected=value;renderExcelReview()};
+window.toggleExcelField=(i,field,value)=>{excelImportState.rows[i].fieldSelections[field]=value;excelImportState.rows[i].selected=Object.values(excelImportState.rows[i].fieldSelections).some(Boolean);renderExcelReview()};
+window.editExcelRow=(i,field,value)=>{const r=excelImportState.rows[i];r[field]=field==='vin'?normalizeVin(value):field==='year'?parseExcelYear(value):field==='brand'?normalizeBrand(value):String(value??'').trim();const all=excelImportState.existing;analyzeImportRows(excelImportState.rows,all);renderExcelReview()};
+$('open-import-btn').addEventListener('click',()=>{if(!canManageStock()){notify('Only stock managers and admins can import inventory.',true);return}$('excel-import-panel').classList.remove('hidden');$('excel-import-panel').scrollIntoView({behavior:'smooth',block:'start'})});
+$('close-import-btn').addEventListener('click',()=>$('excel-import-panel').classList.add('hidden'));
+$('excel-file').addEventListener('change',()=>{$('analyze-excel-btn').disabled=!$('excel-file').files.length;$('excel-review-wrap').classList.add('hidden');$('excel-summary').classList.add('hidden');$('excel-message').classList.add('hidden')});
+$('analyze-excel-btn').addEventListener('click',async()=>{
+ try{
+  if(!window.XLSX)throw new Error('Excel reader could not load. Check your internet connection and reload the page.');
+  const file=$('excel-file').files[0];if(!file)throw new Error('Choose an Excel file first.');
+  const buf=await file.arrayBuffer();const book=XLSX.read(buf,{type:'array',cellDates:true});const sheet=book.Sheets[book.SheetNames[0]];const matrix=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});
+  if(!matrix.length)throw new Error('The first worksheet has no data rows.');
+  const headerIndex=matrix.findIndex(row=>row.some(cell=>excelFieldAliases.chassis_number.includes(normalizeExcelHeading(cell))));
+  if(headerIndex<0)throw new Error('Could not find a VIN/chassis column. Use headings such as CHASSIS NUMBER, Brand, Model, Color, Year.');
+  const headings=matrix[headerIndex].map(v=>String(v??'').trim());const dataRows=matrix.slice(headerIndex+1).filter(row=>row.some(v=>String(v??'').trim()!==''));
+  const grid=dataRows.map(row=>Object.fromEntries(headings.map((heading,i)=>[heading,row[i]??''])));
+  const rows=grid.map((r,i)=>importRowFromExcel(r,i)).filter(r=>r.vin||r.brand||r.model||r.year||r.color);
+  if(!rows.length)throw new Error('No vehicle rows found. Check the spreadsheet column headings.');
+  const existing=await api('/inventory');excelImportState.existing=existing;excelImportState.rows=rows;analyzeImportRows(rows,existing);renderExcelReview();
+  $('excel-message').textContent=`Read ${rows.length} vehicle rows from “${file.name}”. Review every flagged change before importing.`;$('excel-message').className='notice border border-emerald-800 bg-emerald-950/40 text-emerald-200';$('excel-message').classList.remove('hidden');
+ }catch(e){$('excel-message').textContent=e.message;$('excel-message').className='notice border border-rose-800 bg-rose-950/40 text-rose-200';$('excel-message').classList.remove('hidden')}
+});
+$('excel-default-branch').addEventListener('change',()=>{excelImportState.rows.forEach(r=>{if(!r.existing)r.store=$('excel-default-branch').value});if(excelImportState.rows.length){analyzeImportRows(excelImportState.rows,excelImportState.existing);renderExcelReview()}});
+$('excel-default-type').addEventListener('change',()=>{excelImportState.rows.forEach(r=>{if(!r.existing)r.vehicle_type=$('excel-default-type').value});if(excelImportState.rows.length){analyzeImportRows(excelImportState.rows,excelImportState.existing);renderExcelReview()}});
+$('excel-select-new').addEventListener('click',()=>{excelImportState.rows.forEach(r=>r.selected=r.kind==='new'&&r.issues.length===0);renderExcelReview()});
+$('excel-import-selected').addEventListener('click',async()=>{
+ if(!canManageStock()){notify('Only stock managers and admins can import inventory.',true);return}
+ const selected=excelImportState.rows.filter(r=>r.selected);
+ if(!selected.length){notify('Select at least one valid new vehicle or reviewed update.',true);return}
+ if(!confirm(`Apply the selected import actions for ${selected.length} row(s)? Existing vehicle statuses and sales history will be preserved.`))return;
+ const btn=$('excel-import-selected');btn.disabled=true;let added=0,updated=0,skipped=0,failed=[];
+ try{
+  for(const r of selected){
+   try{
+    if(!r.vin)throw new Error('VIN/chassis number is required.');
+    if(!r.existing){if(!r.model||!r.year||!r.store||!r.vehicle_type)throw new Error('New vehicles require VIN, model, year, vehicle type, and branch.');
+     const payload={chassis_number:r.vin,brand:r.brand,model:r.model,year:Number(r.year),vehicle_type:r.vehicle_type,color:r.color,body:'',store:r.store,has_charger:false,has_accessories:false,has_key:false,has_card:false,customer_name:r.customer_name||'',received_date:r.received_date||null,received_by:currentUser.username||'',notes:r.dateRaw?`Imported from Excel. Original date: ${String(r.dateRaw)} (Ethiopian calendar if entered as DD.MM.YY).`: 'Imported from Excel.'};
+     await api('/inventory',{method:'POST',body:JSON.stringify(payload)});added++;
+    }else{
+     const patch={};for(const c of r.changes){if(r.fieldSelections[c.field])patch[c.field]=c.field==='year'?Number(r[c.field]):r[c.field]}
+     if(!Object.keys(patch).length){skipped++;continue}
+     await api('/inventory/'+encodeURIComponent(r.vin),{method:'PATCH',body:JSON.stringify(patch)});updated++;
     }
+   }catch(e){failed.push(`Row ${r.index+2} (${r.vin||'no VIN'}): ${e.message}`)}
+  }
+  await loadInventory();
+  $('excel-message').textContent=`Import finished: ${added} new vehicle(s) added, ${updated} existing vehicle(s) updated, ${skipped} unchanged row(s) skipped, ${failed.length} error(s).`+(failed.length?' '+failed.slice(0,5).join(' | '):'');
+  $('excel-message').className='notice border '+(failed.length?'border-amber-700 bg-amber-950/40 text-amber-200':'border-emerald-800 bg-emerald-950/40 text-emerald-200');$('excel-message').classList.remove('hidden');
+  // Refresh inventory cache so a second import compares against the latest database.
+  excelImportState.existing=await api('/inventory');excelImportState.rows.forEach(r=>{r.selected=false});analyzeImportRows(excelImportState.rows,excelImportState.existing);renderExcelReview();
+ }catch(e){notify(e.message,true)}finally{btn.disabled=false}
+});
 
-
-@app.get("/bookings")
-def list_bookings(
-    limit: int = 200,
-    db: Session = Depends(get_db),
-    user: models.User = Depends(
-        require_roles("admin", "management", "stock_manager", "salesperson")
-    )
-):
-    limit = max(1, min(limit, 1000))
-
-    query = db.query(models.Booking).filter(
-        models.Booking.status == "Booked"
-    )
-
-    if user.role == "salesperson":
-        query = query.filter(models.Booking.booked_by == user.username)
-
-    bookings = (
-        query.order_by(models.Booking.booking_date.desc())
-        .limit(limit)
-        .all()
-    )
-
-    return [
-        {
-            "id": b.id,
-            "chassis_number": b.chassis_number,
-            "customer_name": b.customer_name,
-            "customer_phone": b.customer_phone,
-            "booked_by": b.booked_by,
-            "booking_amount": b.booking_amount,
-            "booking_date": b.booking_date.isoformat(),
-            "notes": b.notes,
-            "status": b.status
-        }
-        for b in bookings
-    ]
-
-
-@app.post("/bookings/{booking_id}/cancel")
-def cancel_booking(
-    booking_id: int,
-    db: Session = Depends(get_db),
-    user: models.User = Depends(require_roles("admin", "salesperson"))
-):
-    booking = (
-        db.query(models.Booking)
-        .filter(models.Booking.id == booking_id)
-        .with_for_update()
-        .first()
-    )
-
-    if not booking or booking.status != "Booked":
-        raise HTTPException(
-            status_code=404,
-            detail="Active booking not found."
-        )
-
-    vehicle = (
-        db.query(models.Vehicle)
-        .filter(
-            models.Vehicle.chassis_number == booking.chassis_number
-        )
-        .with_for_update()
-        .first()
-    )
-
-    if not vehicle:
-        raise HTTPException(status_code=404, detail="Vehicle not found.")
-
-    if user.role == "salesperson" and booking.booked_by != user.username:
-        raise HTTPException(
-            status_code=403,
-            detail="You can only cancel bookings you recorded."
-        )
-
-    if vehicle.status != "Booked":
-        raise HTTPException(
-            status_code=409,
-            detail=f"The vehicle status is '{vehicle.status}'. The booking cannot be cancelled automatically."
-        )
-
-    booking.status = "Unbooked"
-    vehicle.status = "In Stock"
-
-    db.commit()
-
-    return {
-        "message": "Booking cancelled successfully. Vehicle returned to In Stock.",
-        "booking_id": booking.id,
-        "chassis_number": booking.chassis_number,
-        "status": booking.status
-    }
-@app.post("/transfers", status_code=201)
-def create_transfer(data: TransferCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager"))):
-    if data.from_store.strip().casefold() == data.to_store.strip().casefold():
-        raise HTTPException(status_code=400, detail="The source and destination branches must be different.")
-    v = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == data.chassis_number.strip().upper()).with_for_update().first()
-    if not v:
-        raise HTTPException(status_code=404, detail="Vehicle not found.")
-    if v.status != "In Stock":
-        raise HTTPException(status_code=409, detail="Only vehicles currently in stock can be transferred.")
-    if v.store.casefold() != data.from_store.strip().casefold():
-        raise HTTPException(status_code=409, detail=f"This vehicle is currently listed at '{v.store}', not '{data.from_store}'.")
-    transfer = models.Transfer(chassis_number=v.chassis_number, from_store=v.store, to_store=data.to_store.strip(), transferred_by=data.transferred_by.strip() or user.username, notes=data.notes)
-    v.store = data.to_store.strip()
-    db.add(transfer)
-    db.commit()
-    db.refresh(transfer)
-    return {"message": "Branch transfer recorded successfully.", "transfer_id": transfer.id, "chassis_number": transfer.chassis_number, "current_store": v.store, "transferred_at": transfer.transferred_at.isoformat()}
-
-@app.get("/transfers")
-def list_transfers(limit: int = 200, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management", "stock_manager"))):
-    limit = max(1, min(limit, 1000))
-    rows = db.query(models.Transfer).order_by(models.Transfer.transferred_at.desc()).limit(limit).all()
-    return [{"id": t.id, "chassis_number": t.chassis_number, "from_store": t.from_store, "to_store": t.to_store, "transferred_by": t.transferred_by, "transferred_at": t.transferred_at.isoformat(), "notes": t.notes} for t in rows]
-
-@app.get("/reports/summary")
-def reports_summary(db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management"))):
-    total = db.query(models.Vehicle).count()
-    in_stock = db.query(models.Vehicle).filter(models.Vehicle.status == "In Stock").count()
-    sold = db.query(models.Vehicle).filter(models.Vehicle.status == "Sold").count()
-    by_seller = db.query(models.Sale.sold_by, func.count(models.Sale.id).label("units_sold"), func.coalesce(func.sum(models.Sale.sale_price), 0).label("revenue")).group_by(models.Sale.sold_by).order_by(func.count(models.Sale.id).desc()).all()
-    by_store = db.query(models.Vehicle.store, func.count(models.Vehicle.id).label("vehicles")).filter(models.Vehicle.status == "In Stock").group_by(models.Vehicle.store).all()
-    recent_sales = db.query(models.Sale).order_by(models.Sale.sold_at.desc()).limit(10).all()
-    return {"total_inventory": total, "in_stock": in_stock, "sold": sold, "by_seller": [{"sold_by": row[0], "units_sold": row[1], "revenue": float(row[2] or 0)} for row in by_seller], "by_store": [{"store": row[0], "vehicles": row[1]} for row in by_store], "recent_sales": [{"chassis_number": s.chassis_number, "customer_name": s.customer_name, "sale_price": s.sale_price, "sold_by": s.sold_by, "payment_method": s.payment_method, "bank_name": s.bank_name, "sold_at": s.sold_at.isoformat()} for s in recent_sales]}
-
-@app.get("/reports/stock")
-def stock_report(db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management", "stock_manager"))):
-    rows = db.query(models.Vehicle.store, models.Vehicle.status, func.count(models.Vehicle.id)).group_by(models.Vehicle.store, models.Vehicle.status).all()
-    return [{"store": row[0], "status": row[1], "count": row[2]} for row in rows]
-
-@app.get("/")
-def home():
-    path = os.path.join(APP_DIR, "index.html")
-    if os.path.exists(path):
-        return FileResponse(path)
-    return {"message": "Hallel Inventory API is running. Open /docs for API documentation."}
+// 11M. INITIALIZATION: restore the session or show the login screen
+if(authToken)startApp();else setLoggedIn(false);
+</script>
+</body>
+</html>
