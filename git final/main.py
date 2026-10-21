@@ -160,6 +160,16 @@ class SaleCreate(BaseModel):
     sold_by: str = Field(min_length=1, max_length=80)
     notes: str = Field(default="", max_length=2000)
 
+
+class BookingCreate(BaseModel):
+    chassis_number: str = Field(min_length=3, max_length=80)
+    customer_name: str = Field(min_length=1, max_length=150)
+    customer_phone: str = Field(default="", max_length=80)
+    booked_by: str = Field(min_length=1, max_length=80)
+    booking_amount: float = Field(default=0, ge=0)
+    notes: str = Field(default="", max_length=2000)
+
+
 class TransferCreate(BaseModel):
     chassis_number: str = Field(min_length=3, max_length=80)
     from_store: str = Field(min_length=1, max_length=100)
