@@ -62,3 +62,36 @@ class Transfer(Base):
     transferred_by = Column(String(80), nullable=False)
     transferred_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     notes = Column(Text, nullable=False, default="")
+    class Booking(Base):
+    __tablename__ = "bookings"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    chassis_number = Column(
+        String(80),
+        ForeignKey("inventory.chassis_number"),
+        nullable=False,
+        index=True
+    )
+
+    customer_name = Column(String(150), nullable=False)
+    customer_phone = Column(String(80), nullable=False, default="")
+    booked_by = Column(String(80), nullable=False)
+    booking_amount = Column(Float, nullable=False, default=0)
+    booking_date = Column(DateTime, nullable=False, default=datetime.utcnow)
+    notes = Column(Text, nullable=False, default="")
+
+    status = Column(
+        String(30),
+        nullable=False,
+        default="Booked",
+        index=True
+    )
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow
+    )
+
+    vehicle = relationship("Vehicle")
