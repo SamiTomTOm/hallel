@@ -246,7 +246,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), user: models.Us
     return {"id": record.id, "username": record.username, "role": record.role, "is_active": record.is_active}
 
 @app.get("/auth/users")
-def list_users(db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management"))):
+def list_users(db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin"))):
     return [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active, "created_at": u.created_at.isoformat()} for u in db.query(models.User).order_by(models.User.username).all()]
 
 @app.patch("/auth/users/{user_id}/password")
@@ -314,7 +314,7 @@ def get_vehicle(chassis_number: str, db: Session = Depends(get_db), user: models
     return vehicle_dict(v)
 
 @app.post("/inventory", status_code=201)
-def add_inventory(data: VehicleCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager"))):
+def add_inventory(data: VehicleCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager", "management"))):
     vin = data.chassis_number.strip().upper()
     if db.query(models.Vehicle).filter(models.Vehicle.chassis_number == vin).first():
         raise HTTPException(status_code=409, detail="A vehicle with this VIN/chassis number already exists.")
@@ -332,7 +332,7 @@ def add_inventory(data: VehicleCreate, db: Session = Depends(get_db), user: mode
     return vehicle_dict(v)
 
 @app.patch("/inventory/{chassis_number}")
-def update_inventory(chassis_number: str, data: VehicleUpdate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager"))):
+def update_inventory(chassis_number: str, data: VehicleUpdate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager", "management"))):
     v = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == chassis_number).first()
     if not v:
         raise HTTPException(status_code=404, detail="Vehicle not found.")
@@ -345,7 +345,7 @@ def update_inventory(chassis_number: str, data: VehicleUpdate, db: Session = Dep
     return vehicle_dict(v)
 
 @app.post("/sales", status_code=201)
-def create_sale(data: SaleCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "salesperson"))):
+def create_sale(data: SaleCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "salesperson", "management"))):
     v = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == data.chassis_number.strip().upper()).with_for_update().first()
     if not v:
         raise HTTPException(status_code=404, detail="Vehicle not found. Check the VIN/chassis number.")
@@ -373,7 +373,7 @@ def list_sales(limit: int = 200, db: Session = Depends(get_db), user: models.Use
 def create_booking(
     data: BookingCreate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_roles("admin", "salesperson"))
+    user: models.User = Depends(require_roles("admin", "salesperson", "management"))
 ):
     chassis = data.chassis_number.strip().upper()
 
@@ -461,7 +461,7 @@ def list_bookings(
 def cancel_booking(
     booking_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(require_roles("admin", "salesperson"))
+    user: models.User = Depends(require_roles("admin", "salesperson", "management"))
 ):
     booking = (
         db.query(models.Booking)
@@ -512,7 +512,7 @@ def cancel_booking(
         "status": booking.status
     }
 @app.post("/transfers", status_code=201)
-def create_transfer(data: TransferCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager"))):
+def create_transfer(data: TransferCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager", "management"))):
     if data.from_store.strip().casefold() == data.to_store.strip().casefold():
         raise HTTPException(status_code=400, detail="The source and destination branches must be different.")
     v = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == data.chassis_number.strip().upper()).with_for_update().first()
