@@ -223,6 +223,29 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
      ========================================================= -->
 <div id="vehicle-modal" class="hidden fixed inset-0 z-50 bg-black/70 p-3 md:p-6 items-center justify-center"><div class="panel w-full max-w-3xl max-h-[94vh] overflow-auto p-5 md:p-7"><div class="flex items-center justify-between mb-5"><div><p class="text-xs uppercase tracking-widest text-emerald-400 font-bold">Stock receiving</p><h2 class="text-xl font-black mt-1">Receive a vehicle</h2></div><button id="close-modal" class="btn btn-dark">✕</button></div><form id="vehicle-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label class="field-label">VIN / Chassis number *</label><input id="vehicle-vin" required></div><div><label class="field-label">Brand *</label><input id="vehicle-brand" required placeholder="e.g. BYD, Toyota"></div><div><label class="field-label">Model *</label><input id="vehicle-model" required></div><div><label class="field-label">Year *</label><input id="vehicle-year" type="number" min="1980" max="2100" value="2026" required></div><div><label class="field-label">Vehicle type *</label><select id="vehicle-type"><option>Electric</option><option>Hybrid</option><option>Fuel</option></select></div><div><label class="field-label">Color</label><input id="vehicle-color"></div><div><label class="field-label">Body</label><input id="vehicle-body" placeholder="SUV, Sedan, Pickup…"></div><div><label class="field-label">Branch / Store *</label><select id="vehicle-store" required><option value="">Select branch</option><option>Store</option><option>Meskel Flower</option><option>Atlas</option><option>Atlas Moges Branch</option></select></div><div><label class="field-label">Received date</label><input id="vehicle-date" type="date"></div><div><label class="field-label">Received by</label><input id="vehicle-received-by"></div><div class="sm:col-span-2"><span class="field-label">Accessories included</span><div class="flex flex-wrap gap-6"><label class="flex items-center gap-2 text-sm"><input id="vehicle-charger" type="checkbox"> Charger</label><label class="flex items-center gap-2 text-sm"><input id="vehicle-accessories" type="checkbox"> Accessories</label><label class="flex items-center gap-2 text-sm"><input id="vehicle-key" type="checkbox"> Key</label><label class="flex items-center gap-2 text-sm"><input id="vehicle-card" type="checkbox"> Card</label></div></div><div><label class="field-label">Customer name (optional)</label><input id="vehicle-customer" placeholder="If already known"></div><div class="sm:col-span-2"><label class="field-label">Notes</label><textarea id="vehicle-notes" rows="2"></textarea></div><div class="sm:col-span-2 flex justify-end gap-2"><button type="button" id="cancel-modal" class="btn btn-dark">Cancel</button><button type="submit" class="btn btn-green">Save to inventory</button></div></form></div></div>
 
+<!-- Booking form modal: structured form instead of browser prompt dialogs -->
+<div id="booking-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-3 md:p-6 items-center justify-center">
+  <div class="panel w-full max-w-2xl max-h-[94vh] overflow-auto p-5 md:p-7">
+    <div class="flex items-center justify-between gap-3 mb-5">
+      <div><p class="text-xs uppercase tracking-widest font-bold" style="color:#087f5b">Customer reservation</p><h2 class="text-xl font-black mt-1">Book a vehicle</h2><p class="muted text-sm mt-1">Enter the customer's details below.</p></div>
+      <button type="button" id="close-booking-modal" class="btn btn-dark">✕</button>
+    </div>
+    <div class="rounded-xl border p-4 mb-5" style="background:#f3f8f5;border-color:#dce9e1;color:#17372b">
+      <div class="text-xs muted">Selected vehicle</div><div id="booking-vehicle-title" class="font-bold mt-1">—</div><div id="booking-vehicle-vin" class="text-sm mt-1">—</div>
+    </div>
+    <form id="booking-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <input id="booking-vin" type="hidden">
+      <div class="sm:col-span-2"><label class="field-label" for="booking-customer-name">Customer name *</label><input id="booking-customer-name" required autocomplete="name" placeholder="Enter customer's full name"></div>
+      <div><label class="field-label" for="booking-customer-phone">Customer phone</label><input id="booking-customer-phone" type="tel" autocomplete="tel" placeholder="Enter phone number"></div>
+      <div><label class="field-label" for="booking-amount">Booking amount</label><input id="booking-amount" type="number" min="0" step="0.01" value="0" placeholder="0.00"></div>
+      <div><label class="field-label" for="booking-booked-by">Booked by *</label><input id="booking-booked-by" required></div>
+      <div><label class="field-label" for="booking-date">Booking date *</label><input id="booking-date" type="date" required></div>
+      <div class="sm:col-span-2"><label class="field-label" for="booking-notes">Notes</label><textarea id="booking-notes" rows="3" placeholder="Optional details or follow-up notes"></textarea></div>
+      <div class="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2"><button type="button" id="cancel-booking-modal" class="btn btn-dark">Cancel</button><button type="submit" id="save-booking-btn" class="btn btn-green">Confirm booking</button></div>
+    </form>
+  </div>
+</div>
+
 <!-- Toast notification area -->
 <div id="toast" class="toast hidden notice"></div>
 <!-- =========================================================
@@ -282,21 +305,57 @@ $('sale-payment-method').addEventListener('change',()=>{$('sale-bank-wrap').clas
 $('sale-form').addEventListener('submit',async e=>{e.preventDefault();if(!canSell()){notify('You do not have permission to record sales.',true);return}if(!saleVehicleReady){notify('Enter a valid VIN and confirm that the vehicle is in stock before recording the sale.',true);return}if(!confirm('Confirm this vehicle sale? The inventory status will change to Sold.'))return;const data={chassis_number:$('sale-vin').value.trim().toUpperCase(),customer_name:$('sale-customer').value.trim(),contact_info:$('sale-contact').value.trim(),sale_price:Number($('sale-price').value),payment_method:$('sale-payment-method').value,bank_name:$('sale-bank-name').value.trim(),sold_by:$('sale-sold-by').value.trim()||currentUser.username,notes:$('sale-notes').value.trim()};try{await api('/sales',{method:'POST',body:JSON.stringify(data)});notify('Sale recorded. Inventory status updated to Sold.');$('sale-form').reset();$('sale-sold-by').value=currentUser.username;$('sale-vehicle-info').textContent='Enter a VIN to load the vehicle from inventory.';clearSaleVehicleDetails();await loadRecentSales();await loadInventory()}catch(err){notify(err.message,true)}});
 async function loadRecentSales(){try{const rows=await api('/sales?limit=8');$('recent-sales').innerHTML=rows.length?rows.map(s=>`<div class="border-b border-emerald-950 pb-3"><div class="flex justify-between gap-3"><span class="font-semibold text-sm">${esc(s.customer_name)}</span><span class="font-bold text-emerald-300">USD ${money(s.sale_price)}</span></div><div class="text-xs muted mt-1">${esc(s.chassis_number)} · ${esc(s.sold_by)} · ${esc(s.sold_at.slice(0,10))}</div></div>`).join(''):'<p class="muted text-sm">No sales recorded yet.</p>'}catch(e){$('recent-sales').innerHTML=`<p class="text-rose-300 text-sm">${esc(e.message)}</p>`}}
 // 11I2. BOOKINGS: create, list, and cancel active bookings
+let bookingVehicleToSave=null;
 window.openBooking=async encodedVin=>{
   if(!canSell()){notify('You do not have permission to book vehicles.',true);return}
   const vin=decodeURIComponent(encodedVin);
   const vehicle=inventoryCache.find(v=>v.chassis_number===vin);
   if(!vehicle||vehicle.status!=='In Stock'){notify('Only vehicles currently In Stock can be booked.',true);return}
-  const customerName=prompt('Customer name:');if(customerName===null)return;if(!customerName.trim()){notify('Customer name is required.',true);return}
-  const customerPhone=prompt('Customer phone number (optional):','');if(customerPhone===null)return;
-  const amountText=prompt('Booking amount (optional; enter 0 if none):','0');if(amountText===null)return;
-  const amount=Number(amountText||0);if(!Number.isFinite(amount)||amount<0){notify('Booking amount must be zero or a positive number.',true);return}
-  const notes=prompt('Booking notes (optional):','');if(notes===null)return;
-  try{
-    await api('/bookings',{method:'POST',body:JSON.stringify({chassis_number:vin,customer_name:customerName.trim(),customer_phone:customerPhone.trim(),booked_by:currentUser.username,booking_amount:amount,notes:notes.trim()})});
-    notify('Vehicle booked successfully.');await loadInventory();await loadBookings();
-  }catch(e){notify(e.message,true)}
+  bookingVehicleToSave=vehicle;
+  $('booking-vin').value=vehicle.chassis_number;
+  $('booking-vehicle-title').textContent=[vehicle.brand,vehicle.model,vehicle.year].filter(Boolean).join(' ');
+  $('booking-vehicle-vin').textContent='VIN / Chassis: '+vehicle.chassis_number;
+  $('booking-customer-name').value=vehicle.customer_name||'';
+  $('booking-customer-phone').value='';
+  $('booking-amount').value='0';
+  $('booking-booked-by').value=currentUser.username||'';
+  $('booking-date').value=new Date().toLocaleDateString('en-CA');
+  $('booking-notes').value='';
+  $('booking-modal').classList.remove('hidden');
+  $('booking-modal').classList.add('flex');
+  setTimeout(()=>$('booking-customer-name').focus(),50);
 };
+function closeBookingModal(){
+  $('booking-modal').classList.add('hidden');
+  $('booking-modal').classList.remove('flex');
+  bookingVehicleToSave=null;
+}
+$('close-booking-modal').addEventListener('click',closeBookingModal);
+$('cancel-booking-modal').addEventListener('click',closeBookingModal);
+$('booking-modal').addEventListener('click',e=>{if(e.target===$('booking-modal'))closeBookingModal()});
+$('booking-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!canSell()){notify('You do not have permission to book vehicles.',true);return}
+  if(!bookingVehicleToSave){notify('Select a vehicle before creating a booking.',true);return}
+  const amount=Number($('booking-amount').value||0);
+  if(!Number.isFinite(amount)||amount<0){notify('Booking amount must be zero or a positive number.',true);return}
+  const btn=$('save-booking-btn');btn.disabled=true;
+  try{
+    const bookingDate=$('booking-date').value;
+    const payload={
+      chassis_number:$('booking-vin').value.trim().toUpperCase(),
+      customer_name:$('booking-customer-name').value.trim(),
+      customer_phone:$('booking-customer-phone').value.trim(),
+      booked_by:$('booking-booked-by').value.trim()||currentUser.username,
+      booking_amount:amount,
+      booking_date:bookingDate?new Date(bookingDate+'T12:00:00').toISOString():null,
+      notes:$('booking-notes').value.trim()
+    };
+    await api('/bookings',{method:'POST',body:JSON.stringify(payload)});
+    closeBookingModal();notify('Vehicle booked successfully.');await loadInventory();await loadBookings();
+  }catch(err){notify(err.message,true)}
+  finally{btn.disabled=false}
+});
 async function loadBookings(){
   const body=$('bookings-body');if(!body)return;
   try{
