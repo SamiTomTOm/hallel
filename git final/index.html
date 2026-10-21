@@ -246,6 +246,33 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
   </div>
 </div>
 
+<!-- Sale checkout modal: structured popup opened by SOLD buttons -->
+<div id="sale-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-3 md:p-6 items-center justify-center">
+  <div class="panel w-full max-w-2xl max-h-[94vh] overflow-auto p-5 md:p-7">
+    <div class="flex items-center justify-between gap-3 mb-5">
+      <div><p class="text-xs uppercase tracking-widest font-bold" style="color:#087f5b">Sales checkout</p><h2 class="text-xl font-black mt-1">Complete vehicle sale</h2><p class="muted text-sm mt-1">Confirm the vehicle and enter the customer's payment details.</p></div>
+      <button type="button" id="close-sale-modal" class="btn btn-dark">✕</button>
+    </div>
+    <div class="rounded-xl border p-4 mb-5" style="background:#f3f8f5;border-color:#dce9e1;color:#17372b">
+      <div class="text-xs muted">Selected vehicle</div><div id="sale-modal-vehicle-title" class="font-bold mt-1">—</div>
+      <div id="sale-modal-vehicle-vin" class="text-sm mt-1">—</div>
+      <div class="text-sm mt-1">Branch: <span id="sale-modal-vehicle-branch">—</span> · Status: <span id="sale-modal-vehicle-status">—</span></div>
+    </div>
+    <form id="sale-modal-form" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <input id="sale-modal-vin" type="hidden">
+      <div class="sm:col-span-2"><label class="field-label" for="sale-modal-customer">Customer name *</label><input id="sale-modal-customer" required autocomplete="name" placeholder="Enter customer's full name"></div>
+      <div><label class="field-label" for="sale-modal-contact">Customer phone / contact</label><input id="sale-modal-contact" type="tel" placeholder="Enter phone number"></div>
+      <div><label class="field-label" for="sale-modal-price">Sale price (USD) *</label><input id="sale-modal-price" type="number" min="1" step="0.01" required placeholder="Enter sale price"></div>
+      <div><label class="field-label" for="sale-modal-payment">Payment method *</label><select id="sale-modal-payment" required><option value="Cash">Cash</option><option value="Bank">Bank</option></select></div>
+      <div id="sale-modal-bank-wrap" class="hidden"><label class="field-label" for="sale-modal-bank">Bank name *</label><input id="sale-modal-bank" placeholder="Which bank processed it"></div>
+      <div><label class="field-label" for="sale-modal-sold-by">Sold by *</label><input id="sale-modal-sold-by" required></div>
+      <div class="sm:col-span-2"><label class="field-label" for="sale-modal-notes">Notes</label><textarea id="sale-modal-notes" rows="3" placeholder="Optional notes"></textarea></div>
+      <div id="sale-modal-error" class="hidden sm:col-span-2 notice border border-rose-200 bg-rose-50 text-rose-700"></div>
+      <div class="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2"><button type="button" id="cancel-sale-modal" class="btn btn-dark">Cancel</button><button type="submit" id="save-sale-btn" class="btn btn-green">Confirm and record sale</button></div>
+    </form>
+  </div>
+</div>
+
 <!-- Toast notification area -->
 <div id="toast" class="toast hidden notice"></div>
 <!-- =========================================================
@@ -296,7 +323,58 @@ window.editBranch=async encodedVin=>{const vin=decodeURIComponent(encodedVin);co
 // Fetch vehicle details from the same inventory API/database when the VIN is entered.
 let saleVinLookupTimer=null, saleVinLookupSequence=0, saleVehicleReady=false;
 function clearSaleVehicleDetails(){saleVehicleReady=false;$('sale-vehicle-card').classList.add('hidden');['sale-vehicle-brand','sale-vehicle-model','sale-vehicle-year','sale-vehicle-color','sale-vehicle-branch','sale-vehicle-status'].forEach(id=>$(id).value='')}
-window.sellVehicle=async function(encodedVin){if(!canSell()){notify('You do not have permission to record sales.',true);return;}const vin=decodeURIComponent(encodedVin);try{const vehicle=await api('/inventory/'+encodeURIComponent(vin));if(!['In Stock','Booked'].includes(vehicle.status)){notify('This vehicle cannot be sold because its status is '+vehicle.status+'.',true);return;}switchTab('sales');$('sale-vin').value=vehicle.chassis_number;$('sale-customer').value=vehicle.customer_name||'';await lookupSaleVehicle();$('sale-customer').focus();}catch(error){notify(error.message,true);}};
+let saleVehicleToSave=null;
+window.sellVehicle=async function(encodedVin){
+  if(!canSell()){notify('You do not have permission to record sales.',true);return}
+  const vin=decodeURIComponent(encodedVin);
+  try{
+    const vehicle=await api('/inventory/'+encodeURIComponent(vin));
+    if(!['In Stock','Booked'].includes(vehicle.status)){notify('This vehicle cannot be sold because its status is '+vehicle.status+'.',true);return}
+    saleVehicleToSave=vehicle;
+    $('sale-modal-vin').value=vehicle.chassis_number;
+    $('sale-modal-vehicle-title').textContent=[vehicle.brand,vehicle.model,vehicle.year].filter(Boolean).join(' ');
+    $('sale-modal-vehicle-vin').textContent='VIN / Chassis: '+vehicle.chassis_number;
+    $('sale-modal-vehicle-branch').textContent=vehicle.store||'—';
+    $('sale-modal-vehicle-status').textContent=vehicle.status||'—';
+    $('sale-modal-customer').value=vehicle.customer_name||'';
+    $('sale-modal-contact').value='';
+    $('sale-modal-price').value='';
+    $('sale-modal-payment').value='Cash';
+    $('sale-modal-bank').value='';
+    $('sale-modal-bank-wrap').classList.add('hidden');
+    $('sale-modal-bank').required=false;
+    $('sale-modal-sold-by').value=currentUser.username||'';
+    $('sale-modal-notes').value='';
+    $('sale-modal-error').classList.add('hidden');
+    $('sale-modal').classList.remove('hidden');$('sale-modal').classList.add('flex');
+    setTimeout(()=>$('sale-modal-customer').focus(),50);
+  }catch(error){notify(error.message,true)}
+};
+function closeSaleModal(){$('sale-modal').classList.add('hidden');$('sale-modal').classList.remove('flex');saleVehicleToSave=null}
+$('close-sale-modal').addEventListener('click',closeSaleModal);
+$('cancel-sale-modal').addEventListener('click',closeSaleModal);
+$('sale-modal').addEventListener('click',e=>{if(e.target===$('sale-modal'))closeSaleModal()});
+$('sale-modal-payment').addEventListener('change',()=>{
+  const isBank=$('sale-modal-payment').value==='Bank';
+  $('sale-modal-bank-wrap').classList.toggle('hidden',!isBank);$('sale-modal-bank').required=isBank;
+  if(!isBank)$('sale-modal-bank').value='';
+});
+$('sale-modal-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!canSell()){notify('You do not have permission to record sales.',true);return}
+  if(!saleVehicleToSave){notify('Select a vehicle before recording a sale.',true);return}
+  if(!confirm('Confirm this vehicle sale? The inventory status will change to Sold.'))return;
+  const btn=$('save-sale-btn');btn.disabled=true;btn.textContent='Recording sale…';
+  $('sale-modal-error').classList.add('hidden');
+  const data={chassis_number:$('sale-modal-vin').value.trim().toUpperCase(),customer_name:$('sale-modal-customer').value.trim(),contact_info:$('sale-modal-contact').value.trim(),sale_price:Number($('sale-modal-price').value),payment_method:$('sale-modal-payment').value,bank_name:$('sale-modal-bank').value.trim(),sold_by:$('sale-modal-sold-by').value.trim()||currentUser.username,notes:$('sale-modal-notes').value.trim()};
+  try{
+    await api('/sales',{method:'POST',body:JSON.stringify(data)});
+    const wasBooked=saleVehicleToSave.status==='Booked';
+    closeSaleModal();notify('Sale recorded. Inventory status updated to Sold.');
+    await loadRecentSales();await loadInventory();if(canSeeReports())await loadReports();if(wasBooked)await loadBookings();
+  }catch(err){$('sale-modal-error').textContent=err.message;$('sale-modal-error').classList.remove('hidden')}
+  finally{btn.disabled=false;btn.textContent='Confirm and record sale'}
+});
 async function lookupSaleVehicle(){const vin=$('sale-vin').value.trim().toUpperCase();$('sale-vin').value=vin;const seq=++saleVinLookupSequence;clearSaleVehicleDetails();$('sale-vehicle-info').classList.remove('text-rose-300');if(!vin){$('sale-vehicle-info').textContent='Enter a VIN to load the vehicle from inventory.';return} $('sale-vehicle-info').textContent='Looking up VIN in inventory…';try{const v=await api('/inventory/'+encodeURIComponent(vin));if(seq!==saleVinLookupSequence)return;$('sale-vehicle-brand').value=v.brand||'';$('sale-vehicle-model').value=v.model||'';$('sale-vehicle-year').value=v.year??'';$('sale-vehicle-color').value=v.color||'';$('sale-vehicle-branch').value=v.store||'';$('sale-vehicle-status').value=v.status||'';$('sale-vehicle-card').classList.remove('hidden');saleVehicleReady=v.status==='In Stock';$('sale-vehicle-info').textContent=saleVehicleReady?'Vehicle found. Details loaded from inventory.':'Vehicle found, but its status is '+(v.status||'unknown')+'. Only vehicles in stock can be sold.';if(!saleVehicleReady)$('sale-vehicle-info').classList.add('text-rose-300')}catch(e){if(seq!==saleVinLookupSequence)return;$('sale-vehicle-info').textContent=e.message; $('sale-vehicle-info').classList.add('text-rose-300')}}
 $('sale-vin').addEventListener('input',()=>{clearTimeout(saleVinLookupTimer);saleVinLookupTimer=setTimeout(lookupSaleVehicle,450)});
 $('sale-vin').addEventListener('change',lookupSaleVehicle);
