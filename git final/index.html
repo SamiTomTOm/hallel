@@ -136,6 +136,30 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
 @media(prefers-reduced-motion:reduce){#brand-stock-report .brand-clean-card,#brand-stock-report .brand-card-track span{transition:none}}
 </style>
 
+
+<style id="hallel-inventory-popups">
+.hallel-modal-backdrop{position:fixed;inset:0;z-index:1000;background:rgba(8,28,21,.58);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:18px;overflow-y:auto}
+.hallel-modal-backdrop.hidden{display:none!important}
+.hallel-modal-card{width:min(760px,100%);max-height:92vh;overflow:auto;background:#fff;border:1px solid #dce9e1;border-radius:22px;box-shadow:0 24px 80px rgba(0,30,20,.25);color:#18372b}
+.hallel-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:23px 25px;border-bottom:1px solid #e8efeb;background:linear-gradient(135deg,#f5fbf7,#fff)}
+.hallel-modal-eyebrow{font-size:11px;font-weight:850;letter-spacing:.14em;text-transform:uppercase;color:#07865d}
+.hallel-modal-title{font-size:24px;font-weight:850;letter-spacing:-.03em;margin-top:5px}
+.hallel-modal-close{width:42px;height:42px;border:1px solid #dce8e1;background:#edf5f0;border-radius:12px;font-size:24px;line-height:1;color:#20503d;flex-shrink:0}
+.hallel-modal-content{padding:23px 25px}
+.hallel-edit-grid,.hallel-info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.hallel-field label{display:block;font-size:12px;font-weight:750;color:#5b7166;margin-bottom:7px}
+.hallel-field input{width:100%;min-height:46px;border:1px solid #d5e3da;border-radius:11px;padding:10px 13px;background:#fff;color:#18372b;font:inherit}
+.hallel-field input:focus{outline:3px solid #0b8c6420;border-color:#0b8c64}
+.hallel-modal-actions{display:flex;justify-content:flex-end;gap:10px;padding:17px 25px;border-top:1px solid #e8efeb;background:#fbfdfb;flex-wrap:wrap}
+.hallel-info-item{padding:13px 14px;background:#f5f9f6;border:1px solid #e6eee9;border-radius:12px;min-width:0}
+.hallel-info-item span{display:block;font-size:11px;font-weight:750;color:#71847b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.hallel-info-item strong{display:block;font-size:14px;font-weight:750;color:#18372b;overflow-wrap:anywhere;white-space:pre-wrap}
+.hallel-info-status{display:inline-flex!important;width:max-content;padding:5px 10px;border-radius:999px;background:#e2f5e9;color:#087f5b!important}
+.hallel-vin-link{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#087f5b;text-decoration:underline;text-decoration-color:#a9d7bf;text-underline-offset:3px;cursor:pointer;font-weight:750;background:none;border:0;padding:4px 0;text-align:left}
+.hallel-vin-link:hover{color:#07543d;text-decoration-color:#087f5b}
+@media(max-width:600px){.hallel-modal-backdrop{padding:9px;align-items:flex-start}.hallel-modal-card{max-height:96vh;border-radius:17px}.hallel-modal-head{padding:18px}.hallel-modal-content{padding:17px}.hallel-modal-actions{padding:14px 17px}.hallel-edit-grid,.hallel-info-grid{grid-template-columns:1fr;gap:12px}.hallel-modal-title{font-size:21px}}
+</style>
+
 </head>
 <body>
 
@@ -297,6 +321,25 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
      SECTION 11: JAVASCRIPT APPLICATION LOGIC
      Use the labelled subsections below to find functions.
      ========================================================= -->
+
+<div id="hallel-edit-modal" class="hallel-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="hallel-edit-title">
+  <form id="hallel-edit-form" class="hallel-modal-card">
+    <div class="hallel-modal-head"><div><div class="hallel-modal-eyebrow">Inventory management</div><div id="hallel-edit-title" class="hallel-modal-title">Edit vehicle details</div><div id="hallel-edit-vin-label" class="text-sm muted mt-1"></div></div><button type="button" class="hallel-modal-close" data-close-hallel-edit aria-label="Close edit form">&times;</button></div>
+    <div class="hallel-modal-content"><div class="hallel-edit-grid">
+      <div class="hallel-field"><label for="hallel-edit-color">Vehicle color</label><input id="hallel-edit-color" maxlength="80" autocomplete="off" placeholder="e.g. Black"></div>
+      <div class="hallel-field"><label for="hallel-edit-body">Body type</label><input id="hallel-edit-body" maxlength="100" autocomplete="off" placeholder="e.g. SUV, Sedan, Pickup"></div>
+    </div><p class="text-sm muted mt-4">Only color and body type are editable here, matching the current inventory update API.</p><div id="hallel-edit-error" class="text-sm mt-3" role="status" aria-live="polite"></div></div>
+    <div class="hallel-modal-actions"><button type="button" class="btn btn-dark" data-close-hallel-edit>Cancel</button><button type="submit" class="btn btn-green">Save changes</button></div>
+  </form>
+</div>
+<div id="hallel-vehicle-info-modal" class="hallel-modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="hallel-info-title">
+  <section class="hallel-modal-card">
+    <div class="hallel-modal-head"><div><div class="hallel-modal-eyebrow">Hallel Import &amp; Export · Vehicle record</div><h2 id="hallel-info-title" class="hallel-modal-title">Vehicle information</h2><div id="hallel-info-vin-subtitle" class="text-sm muted mt-1"></div></div><button type="button" class="hallel-modal-close" data-close-hallel-info aria-label="Close vehicle information">&times;</button></div>
+    <div class="hallel-modal-content"><div id="hallel-info-status-line" class="mb-4"></div><div id="hallel-info-grid" class="hallel-info-grid"></div><div id="hallel-info-notes-wrap" class="hallel-info-item mt-4 hidden"><span>Notes</span><strong id="hallel-info-notes"></strong></div></div>
+    <div class="hallel-modal-actions"><button type="button" class="btn btn-green" data-close-hallel-info>Close information</button></div>
+  </section>
+</div>
+
 <script>
 
 // ---------------------------------------------------------
@@ -315,6 +358,38 @@ const money = value => new Intl.NumberFormat('en-ET',{maximumFractionDigits:2}).
 function notify(message, error=false){const el=$('toast');el.textContent=message;el.className='toast notice '+(error?'bg-rose-950 text-rose-100 border border-rose-700':'bg-emerald-950 text-emerald-100 border border-emerald-700');el.classList.remove('hidden');setTimeout(()=>el.classList.add('hidden'),4200)}
 function showAlert(message,error=false){const el=$('alert');el.textContent=message;el.className='notice mb-5 '+(error?'bg-rose-950 text-rose-100 border border-rose-700':'bg-emerald-950 text-emerald-100 border border-emerald-700');el.classList.remove('hidden')}
 async function api(path, options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(authToken)headers.Authorization='Bearer '+authToken;const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);let response;try{response=await fetch(API_URL+path,{...options,headers,signal:controller.signal})}catch(e){if(e.name==='AbortError')throw new Error('The API did not respond within 15 seconds. Check the backend terminal.');throw new Error('Cannot reach the API at '+API_URL+'. Make sure the backend is running.')}finally{clearTimeout(timeout)}if(response.status===401&&path!='/auth/login'&&authToken){logout(false);throw new Error('Your session has expired. Please sign in again.')}let data={};try{data=await response.json()}catch{}if(!response.ok)throw new Error(data.detail||data.message||`Request failed (${response.status})`);return data}
+
+function hallelDisplayDate(value){return value?String(value).slice(0,10):'—'}
+function hallelInfoValue(value){return value===null||value===undefined||String(value).trim()===''?'—':String(value)}
+function hallelInfoItem(label,value){return `<div class="hallel-info-item"><span>${esc(label)}</span><strong>${esc(hallelInfoValue(value))}</strong></div>`}
+window.showVehicleInfo=async encodedVin=>{
+  const vin=decodeURIComponent(encodedVin);let v=inventoryCache.find(x=>x.chassis_number===vin);
+  try{v=await api('/inventory/'+encodeURIComponent(vin))}catch(err){if(!v){notify(err.message||'Unable to load vehicle information.',true);return}}
+  if(!v){notify('Vehicle record not found.',true);return}
+  $('hallel-info-title').textContent=[v.brand,v.model,v.year].filter(Boolean).join(' ')||'Vehicle information';
+  $('hallel-info-vin-subtitle').textContent='VIN / Chassis: '+hallelInfoValue(v.chassis_number);
+  const status=hallelInfoValue(v.status);
+  $('hallel-info-status-line').innerHTML=`<span class="hallel-info-status">${esc(status)}</span>`;
+  const accessories=[v.has_charger?'Charger':null,v.has_accessories?'Accessories':null,v.has_key?'Key':null,v.has_card?'Card':null].filter(Boolean).join(', ')||'—';
+  const pairs=[
+    ['VIN / Chassis Number',v.chassis_number],['Brand',v.brand],['Model',v.model],['Year',v.year],
+    ['Vehicle Type',v.vehicle_type],['Color',v.color],['Body Type',v.body],['Branch / Store',v.store],
+    ['Accessories Included',accessories],['Received Date',hallelDisplayDate(v.received_date)],
+    ['Received By',v.received_by],['Customer Name',v.customer_name],
+    ['Customer Contact',v.customer_contact||v.customer_phone],
+    ['Sale Price',v.sale_price===null||v.sale_price===undefined?'—':money(v.sale_price)],
+    ['Sold Date',hallelDisplayDate(v.sold_date)],['Created / Recorded',hallelDisplayDate(v.created_at)]
+  ];
+  $('hallel-info-grid').innerHTML=pairs.map(([label,value])=>hallelInfoItem(label,value)).join('');
+  const notes=hallelInfoValue(v.notes);$('hallel-info-notes').textContent=notes;
+  $('hallel-info-notes-wrap').classList.toggle('hidden',notes==='—');
+  $('hallel-vehicle-info-modal').classList.remove('hidden');
+};
+function closeHallelInfo(){$('hallel-vehicle-info-modal').classList.add('hidden')}
+document.querySelectorAll('[data-close-hallel-info]').forEach(b=>b.addEventListener('click',closeHallelInfo));
+$('hallel-vehicle-info-modal').addEventListener('click',e=>{if(e.target===$('hallel-vehicle-info-modal'))closeHallelInfo()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('hallel-edit-modal').classList.contains('hidden'))closeHallelEdit();if(!$('hallel-vehicle-info-modal').classList.contains('hidden'))closeHallelInfo()}});
+
 // 11D. LOGIN STATE, LOGOUT, AND STARTUP
 function setLoggedIn(on){$('login-screen').classList.toggle('hidden',on);$('app').classList.toggle('hidden',!on)}
 function logout(showMessage=true){authToken='';currentUser={username:'',role:''};localStorage.removeItem('hallel_token');localStorage.removeItem('hallel_username');localStorage.removeItem('hallel_role');setLoggedIn(false);if(showMessage)notify('You have been logged out.')}
@@ -329,14 +404,35 @@ function switchTab(tab){if(tab==='users'&&currentUser.role!=='admin'){notify('On
 document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 // 11F. INVENTORY: status display, loading, searching, and refresh
 function statusBadge(status){if(status==='Sold')return '<span class="badge bg-amber-900 text-amber-200">Sold</span>';if(status==='Booked')return '<span class="badge" style="background:#fff0d8;color:#9a5b00">Booked</span>';return '<span class="badge bg-emerald-950 text-emerald-300">In Stock</span>'}
-async function loadInventory(){try{const params=new URLSearchParams();const s=$('inventory-status').value;const q=$('inventory-search').value.trim();if(s!=='all')params.set('status_filter',s);if(q)params.set('search',q);inventoryCache=await api('/inventory?'+params.toString());$('inventory-body').innerHTML=inventoryCache.length?inventoryCache.map(v=>{const vin=encodeURIComponent(v.chassis_number);let actions='';if(v.status==='In Stock'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button><button class="btn btn-dark text-xs" onclick="openBooking('${vin}')">BOOK</button>`:''}${canManageStock()?`<button class="text-emerald-700 font-bold" onclick="editBranch('${vin}')">Edit</button>`:''}</div>`;}else if(v.status==='Booked'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button>`:''}<button class="btn btn-dark text-xs" onclick="switchTab('bookings')">View booking</button></div>`;}else{actions='—';}return `<tr><td><div class="font-bold">${esc(v.brand)} ${esc(v.model)}</div><div class="text-xs muted">${esc(v.body||'—')}</div></td><td class="font-mono text-xs">${esc(v.chassis_number)}</td><td>${esc(v.year)}<div class="text-xs muted">${esc(v.vehicle_type)}</div></td><td>${esc(v.color||'—')}</td><td>${esc(v.store)}</td><td class="text-xs">${v.has_charger?'Charger · ':''}${v.has_accessories?'Accessories · ':''}${v.has_key?'Key · ':''}${v.has_card?'Card':''}${!v.has_charger&&!v.has_accessories&&!v.has_key&&!v.has_card?'—':''}</td><td>${v.received_date?esc(v.received_date.slice(0,10)):'—'}</td><td>${statusBadge(v.status)}</td><td>${actions}</td></tr>`;}).join(''):'<tr><td colspan="9" class="muted">No vehicles match your search.</td></tr>';$('stat-total').textContent=inventoryCache.length;const all=await api('/inventory');$('stat-total').textContent=all.length;$('stat-stock').textContent=all.filter(v=>v.status==='In Stock').length;$('stat-sold').textContent=all.filter(v=>v.status==='Sold').length;// Showroom stock is rendered in the Reports menu.
+async function loadInventory(){try{const params=new URLSearchParams();const s=$('inventory-status').value;const q=$('inventory-search').value.trim();if(s!=='all')params.set('status_filter',s);if(q)params.set('search',q);inventoryCache=await api('/inventory?'+params.toString());$('inventory-body').innerHTML=inventoryCache.length?inventoryCache.map(v=>{const vin=encodeURIComponent(v.chassis_number);let actions='';if(v.status==='In Stock'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button><button class="btn btn-dark text-xs" onclick="openBooking('${vin}')">BOOK</button>`:''}${canManageStock()?`<button class="text-emerald-700 font-bold" onclick="editBranch('${vin}')">Edit</button>`:''}</div>`;}else if(v.status==='Booked'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button>`:''}<button class="btn btn-dark text-xs" onclick="switchTab('bookings')">View booking</button></div>`;}else{actions='—';}return `<tr><td><div class="font-bold">${esc(v.brand)} ${esc(v.model)}</div><div class="text-xs muted">${esc(v.body||'—')}</div></td><td><button type="button" class="hallel-vin-link text-xs" onclick="showVehicleInfo('${vin}')" title="View full vehicle information">${esc(v.chassis_number)}</button></td><td>${esc(v.year)}<div class="text-xs muted">${esc(v.vehicle_type)}</div></td><td>${esc(v.color||'—')}</td><td>${esc(v.store)}</td><td class="text-xs">${v.has_charger?'Charger · ':''}${v.has_accessories?'Accessories · ':''}${v.has_key?'Key · ':''}${v.has_card?'Card':''}${!v.has_charger&&!v.has_accessories&&!v.has_key&&!v.has_card?'—':''}</td><td>${v.received_date?esc(v.received_date.slice(0,10)):'—'}</td><td>${statusBadge(v.status)}</td><td>${actions}</td></tr>`;}).join(''):'<tr><td colspan="9" class="muted">No vehicles match your search.</td></tr>';$('stat-total').textContent=inventoryCache.length;const all=await api('/inventory');$('stat-total').textContent=all.length;$('stat-stock').textContent=all.filter(v=>v.status==='In Stock').length;$('stat-sold').textContent=all.filter(v=>v.status==='Sold').length;// Showroom stock is rendered in the Reports menu.
 }catch(e){showAlert(e.message,true)}}
 // 11G. INVENTORY CONTROLS AND RECEIVE-VEHICLE FORM
 let searchTimer; $('inventory-search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(loadInventory,250)});$('inventory-status').addEventListener('change',loadInventory);$('refresh-inventory').addEventListener('click',loadInventory);
 $('add-vehicle-btn').addEventListener('click',()=>{if(!canManageStock()){notify('Only stock managers and admins can receive vehicles.',true);return}$('vehicle-modal').classList.remove('hidden');$('vehicle-modal').classList.add('flex')});function closeModal(){$('vehicle-modal').classList.add('hidden');$('vehicle-modal').classList.remove('flex')}$('close-modal').addEventListener('click',closeModal);$('cancel-modal').addEventListener('click',closeModal);
 $('vehicle-form').addEventListener('submit',async e=>{e.preventDefault();const receivedDate=$('vehicle-date').value;const data={chassis_number:$('vehicle-vin').value.trim().toUpperCase(),brand:$('vehicle-brand').value.trim(),model:$('vehicle-model').value.trim(),year:Number($('vehicle-year').value),vehicle_type:$('vehicle-type').value,color:$('vehicle-color').value.trim(),body:$('vehicle-body').value.trim(),store:$('vehicle-store').value,has_charger:$('vehicle-charger').checked,has_accessories:$('vehicle-accessories').checked,customer_name:$('vehicle-customer').value.trim(),has_key:$('vehicle-key').checked,has_card:$('vehicle-card').checked,received_date:receivedDate?new Date(receivedDate+'T12:00:00').toISOString():null,received_by:$('vehicle-received-by').value.trim(),notes:$('vehicle-notes').value.trim()};try{await api('/inventory',{method:'POST',body:JSON.stringify(data)});closeModal();$('vehicle-form').reset();$('vehicle-year').value=new Date().getFullYear();notify('Vehicle received and added to inventory.');await loadInventory()}catch(err){notify(err.message,true)}});
 // 11H. EDIT BASIC VEHICLE DETAILS
-window.editBranch=async encodedVin=>{const vin=decodeURIComponent(encodedVin);const v=inventoryCache.find(x=>x.chassis_number===vin);if(!v)return;const color=prompt('Update vehicle color:',v.color||'');if(color===null)return;const body=prompt('Update body type:',v.body||'');if(body===null)return;try{await api('/inventory/'+encodeURIComponent(vin),{method:'PATCH',body:JSON.stringify({color,body})});notify('Vehicle details updated.');loadInventory()}catch(e){notify(e.message,true)}};
+let hallelEditingVin = '';
+function closeHallelEdit(){ $('hallel-edit-modal').classList.add('hidden'); hallelEditingVin=''; }
+document.querySelectorAll('[data-close-hallel-edit]').forEach(b=>b.addEventListener('click',closeHallelEdit));
+$('hallel-edit-modal').addEventListener('click',e=>{if(e.target===$('hallel-edit-modal'))closeHallelEdit()});
+window.editBranch=encodedVin=>{
+  const vin=decodeURIComponent(encodedVin), v=inventoryCache.find(x=>x.chassis_number===vin);
+  if(!v)return;
+  if(!canManageStock()){notify('You do not have permission to edit vehicles.',true);return}
+  hallelEditingVin=vin;$('hallel-edit-vin-label').textContent='VIN / Chassis: '+vin;
+  $('hallel-edit-color').value=v.color||'';$('hallel-edit-body').value=v.body||'';$('hallel-edit-error').textContent='';
+  $('hallel-edit-modal').classList.remove('hidden');$('hallel-edit-color').focus();
+};
+$('hallel-edit-form').addEventListener('submit',async e=>{
+  e.preventDefault();if(!hallelEditingVin)return;
+  const button=$('hallel-edit-form').querySelector('button[type="submit"]');
+  button.disabled=true;button.textContent='Saving…';$('hallel-edit-error').textContent='';
+  try{
+    await api('/inventory/'+encodeURIComponent(hallelEditingVin),{method:'PATCH',body:JSON.stringify({color:$('hallel-edit-color').value.trim(),body:$('hallel-edit-body').value.trim()})});
+    closeHallelEdit();notify('Vehicle details updated.');await loadInventory();
+  }catch(err){$('hallel-edit-error').textContent=err.message||'Could not save vehicle details.'}
+  finally{button.disabled=false;button.textContent='Save changes'}
+};
 // 11I. SALES: VIN CHECK, SUBMISSION, AND RECENT SALES
 // Fetch vehicle details from the same inventory API/database when the VIN is entered.
 let saleVinLookupTimer=null, saleVinLookupSequence=0, saleVehicleReady=false;
