@@ -205,6 +205,22 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
 }
 </style>
 
+
+<style id="hallel-vin-scanner-styles">
+#vin-scan-modal{position:fixed;inset:0;z-index:1000;background:rgba(2,10,7,.92);display:none;align-items:center;justify-content:center;padding:14px;color:#f4fff8}
+#vin-scan-modal.is-open{display:flex}
+.vin-scan-card{width:min(100%,620px);max-height:94vh;overflow:auto;background:#0b1711;border:1px solid #28513e;border-radius:24px;padding:18px;box-shadow:0 24px 90px #0008}
+.vin-camera-wrap{position:relative;overflow:hidden;border-radius:18px;background:#020604;min-height:230px;aspect-ratio:4/3;border:1px solid #2e5945}
+#vin-scan-video{width:100%;height:100%;position:absolute;inset:0;object-fit:cover}
+.vin-scan-frame{position:absolute;inset:18% 8%;border:2px solid #36df9b;border-radius:16px;box-shadow:0 0 0 999px #00140b36;pointer-events:none}
+.vin-scan-laser{position:absolute;left:4%;right:4%;height:2px;top:50%;background:#51ffad;box-shadow:0 0 14px #51ffad;animation:vinLaser 2s ease-in-out infinite}
+@keyframes vinLaser{0%,100%{transform:translateY(-65px)}50%{transform:translateY(65px)}}
+.vin-scan-result{background:#10271b;border:1px solid #286344;border-radius:14px;padding:12px}
+.vin-scan-result input{width:100%;background:#07110b;color:white;border:1px solid #37634b;border-radius:10px;padding:12px;font:600 17px ui-monospace,monospace;letter-spacing:.04em}
+.vin-scan-muted{color:#b7cabe;font-size:13px;line-height:1.5}
+@media(max-width:560px){.vin-scan-card{padding:13px;border-radius:18px}.vin-camera-wrap{aspect-ratio:3/4;min-height:300px}.vin-scan-frame{inset:25% 5%}}
+</style>
+
 </head>
 <body>
 
@@ -270,7 +286,7 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
 
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3"><div class="stat"><p class="muted text-sm">Total vehicles</p><p id="stat-total" class="text-3xl font-black mt-2">—</p><p class="text-xs muted mt-2">All registered vehicles</p></div><div class="stat"><p class="muted text-sm">Available in stock</p><p id="stat-stock" class="text-3xl font-black text-emerald-300 mt-2">—</p><p class="text-xs muted mt-2">Ready for sale</p></div><div class="stat"><p class="muted text-sm">Sold vehicles</p><p id="stat-sold" class="text-3xl font-black text-amber-300 mt-2">—</p><p class="text-xs muted mt-2">Completed sales</p></div></div>
     <!-- QUICK ACTIONS: full dashboard width; buttons share one row on desktop -->
-    <div class="panel p-5 w-full"><div class="flex items-center justify-between gap-3"><div><h3 class="font-bold text-lg">Quick actions</h3><p class="muted text-xs mt-1">Common inventory tasks</p></div><span style="font-size:22px;color:#087f5b">✳</span></div><div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-5"><button type="button" class="btn btn-green w-full whitespace-nowrap" onclick="document.getElementById('add-vehicle-btn').click()">＋ Receive vehicle</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('sales')">↗ Record a sale</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('transfers')">⇄ Transfer branch</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('reports')">▥ View reports</button></div><p class="muted text-xs mt-4">Use the navigation on the left to access every workspace.</p></div>
+    <div class="panel p-5 w-full"><div class="flex items-center justify-between gap-3"><div><h3 class="font-bold text-lg">Quick actions</h3><p class="muted text-xs mt-1">Common inventory tasks</p></div><span style="font-size:22px;color:#087f5b">✳</span></div><div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-5"><button type="button" class="btn btn-green w-full whitespace-nowrap" onclick="document.getElementById('add-vehicle-btn').click()">＋ Receive vehicle</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('sales')">↗ Record a sale</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('transfers')">⇄ Transfer branch</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('reports')">▥ View reports</button><button type="button" class="btn btn-green w-full whitespace-nowrap" id="open-vin-scanner">▦ Scan VIN</button></div><p class="muted text-xs mt-4">Use the navigation on the left to access every workspace.</p></div>
     <div class="panel p-4"><div class="grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-3"><input id="inventory-search" placeholder="Search VIN, brand or model…"><select id="inventory-status"><option value="all">All statuses</option><option value="In Stock">In Stock</option><option value="Booked">Booked</option><option value="Sold">Sold</option></select><button id="refresh-inventory" class="btn btn-dark">Refresh</button></div><div class="table-wrap mt-4"><table class="w-full"><thead><tr><th>Vehicle</th><th>VIN / Chassis</th><th>Year / Type</th><th>Color</th><th>Branch</th><th>Accessories</th><th>Received</th><th>Status</th><th>Action</th></tr></thead><tbody id="inventory-body"><tr><td colspan="9" class="muted">Loading inventory…</td></tr></tbody></table></div></div>
   </section>
   <!-- SECTION 6: SALES & CHECKOUT PAGE -->
@@ -398,6 +414,36 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
   <div class="flex items-start justify-between gap-4 mb-5"><div><p class="text-xs uppercase tracking-widest font-bold" style="color:#087f5b">VEHICLE RECORD</p><h2 id="vehicle-info-title" class="text-2xl font-black mt-1">Vehicle information</h2><p id="vehicle-info-subtitle" class="muted text-sm mt-1"></p></div><button type="button" id="vehicle-info-close" class="btn btn-dark" aria-label="Close vehicle information">✕</button></div>
   <div id="vehicle-info-content" class="space-y-5"></div>
   <div class="flex justify-end pt-4"><button type="button" id="vehicle-info-done" class="btn btn-dark">Close</button></div>
+ </div>
+</div>
+
+
+<!-- VIN scanner: QR/barcode + OCR, with manual confirmation before lookup or registration. -->
+<div id="vin-scan-modal" role="dialog" aria-modal="true" aria-labelledby="vin-scan-title">
+ <div class="vin-scan-card">
+  <div class="flex items-start justify-between gap-3 mb-4">
+   <div><p class="text-xs uppercase tracking-widest font-bold" style="color:#54e6a2">HALLEL · VEHICLE INTAKE</p><h2 id="vin-scan-title" class="text-2xl font-black mt-1">Scan VIN</h2><p class="vin-scan-muted mt-1">Point the camera at the QR code or VIN text. You can correct the result before continuing.</p></div>
+   <button id="vin-scan-close" type="button" class="btn btn-dark" aria-label="Close scanner">✕</button>
+  </div>
+  <div class="vin-camera-wrap">
+   <video id="vin-scan-video" playsinline muted autoplay></video>
+   <div class="vin-scan-frame"><div class="vin-scan-laser"></div></div>
+  </div>
+  <div class="flex flex-wrap gap-2 mt-3">
+   <button id="vin-scan-start" type="button" class="btn btn-green flex-1">Start camera</button>
+   <button id="vin-scan-torch" type="button" class="btn btn-dark">Flashlight</button>
+   <button id="vin-scan-stop" type="button" class="btn btn-dark">Stop</button>
+  </div>
+  <p id="vin-scan-status" class="vin-scan-muted mt-3" aria-live="polite">Camera is off. Start the camera to scan a QR code or printed VIN.</p>
+  <div class="vin-scan-result mt-4">
+   <label for="vin-scan-value" class="block text-sm font-bold mb-2">Detected VIN / chassis number</label>
+   <input id="vin-scan-value" autocomplete="off" autocapitalize="characters" placeholder="VIN will appear here">
+   <p class="vin-scan-muted mt-2">Check the characters carefully, especially 0, O, 1 and I. Manual entry is available if the label is hard to read.</p>
+   <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+    <button id="vin-scan-check" type="button" class="btn btn-green">Confirm & check inventory</button>
+    <button id="vin-scan-manual" type="button" class="btn btn-dark">Enter manually</button>
+   </div>
+  </div>
  </div>
 </div>
 
@@ -770,6 +816,212 @@ $('excel-import-selected').addEventListener('click',async()=>{
   excelImportState.existing=await api('/inventory');excelImportState.rows.forEach(r=>{r.selected=false});analyzeImportRows(excelImportState.rows,excelImportState.existing);renderExcelReview();
  }catch(e){notify(e.message,true)}finally{btn.disabled=false}
 });
+
+
+// 11N. VIN SCANNER: QR/barcode + OCR. No backend/database schema changes are needed.
+let vinScannerStream = null;
+let vinScannerReader = null;
+let vinScannerControls = null;
+let vinScannerOcrBusy = false;
+let vinScannerOcrTimer = null;
+let vinScannerLastCandidate = '';
+let vinScannerLastCandidateAt = 0;
+let vinScannerTorchOn = false;
+let vinScannerTrack = null;
+let vinScannerStarting = false;
+
+function normalizeVinCandidate(raw){
+  if(!raw) return '';
+  const text=String(raw).toUpperCase().replace(/[\u200B-\u200D\uFEFF]/g,'');
+  // Prefer a standard 17-character VIN, excluding I, O and Q.
+  const compact=text.replace(/[^A-Z0-9]/g,'');
+  const standard=compact.match(/[A-HJ-NPR-Z0-9]{17}/);
+  if(standard) return standard[0];
+  // Hallel also receives non-standard/import chassis formats. Accept a long
+  // alphanumeric token for review, but never save it without user confirmation.
+  const tokens=text.match(/[A-Z0-9][A-Z0-9 -]{9,28}[A-Z0-9]/g)||[];
+  const candidate=tokens.map(t=>t.replace(/[^A-Z0-9]/g,'')).sort((a,b)=>b.length-a.length)[0]||'';
+  return candidate.length>=10 && candidate.length<=30 ? candidate : '';
+}
+function setVinScannerStatus(message,isError=false){
+  const el=$('vin-scan-status');
+  if(el){el.textContent=message;el.style.color=isError?'#ffb4b4':'#b7cabe'}
+}
+function showVinScanner(){
+  $('vin-scan-modal').classList.add('is-open');
+  document.body.style.overflow='hidden';
+  setVinScannerStatus('Start the camera. The scanner checks QR codes first and also tries to read VIN text.');
+  setTimeout(()=>$('vin-scan-start').focus(),50);
+}
+function hideVinScanner(){
+  stopVinScanner();
+  $('vin-scan-modal').classList.remove('is-open');
+  document.body.style.overflow='';
+}
+function stopVinScanner(){
+  if(vinScannerControls){try{vinScannerControls.stop()}catch(e){}vinScannerControls=null}
+  if(vinScannerReader){try{vinScannerReader.reset()}catch(e){}vinScannerReader=null}
+  if(vinScannerOcrTimer){clearInterval(vinScannerOcrTimer);vinScannerOcrTimer=null}
+  if(vinScannerStream){vinScannerStream.getTracks().forEach(track=>track.stop());vinScannerStream=null}
+  const video=$('vin-scan-video');
+  if(video){video.pause();video.srcObject=null}
+  vinScannerTrack=null;vinScannerTorchOn=false;
+  const torch=$('vin-scan-torch');if(torch)torch.textContent='Flashlight';
+  setVinScannerStatus('Camera stopped.');
+}
+function extractVinFromQr(raw){
+  const text=String(raw||'').trim();
+  // QR payload may be the VIN itself, a URL, or a labelled key/value string.
+  const direct=normalizeVinCandidate(text);
+  if(direct) return direct;
+  const labelled=text.match(/(?:VIN|CHASSIS|FRAME)\s*[:=#-]?\s*([A-Z0-9 -]{10,30})/i);
+  return labelled?normalizeVinCandidate(labelled[1]):'';
+}
+function acceptVinCandidate(raw,source){
+  const candidate=extractVinFromQr(raw);
+  if(!candidate)return false;
+  const input=$('vin-scan-value');
+  const now=Date.now();
+  if(candidate===vinScannerLastCandidate && now-vinScannerLastCandidateAt<2500)return true;
+  vinScannerLastCandidate=candidate;vinScannerLastCandidateAt=now;
+  input.value=candidate;
+  // Pause scanning after a likely match so the user can verify the value.
+  stopVinScanner();
+  setVinScannerStatus('VIN detected using '+source+'. Verify the characters, then tap “Confirm & check inventory”.');
+  return true;
+}
+async function startVinScanner(){
+  if(vinScannerStarting)return;
+  vinScannerStarting=true;
+  const start=$('vin-scan-start');start.disabled=true;start.textContent='Starting…';
+  try{
+    if(!window.isSecureContext && location.hostname!=='localhost' && location.hostname!=='127.0.0.1'){
+      throw new Error('Camera access requires HTTPS. Open the deployed app using its secure https:// address.');
+    }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)throw new Error('This browser does not support camera access. Use a recent version of Chrome or Safari.');
+    const video=$('vin-scan-video');
+    vinScannerStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    video.srcObject=vinScannerStream;await video.play();
+    vinScannerTrack=vinScannerStream.getVideoTracks()[0]||null;
+    setVinScannerStatus('Camera is running. Hold the QR code or VIN text steady inside the frame.');
+    // QR/barcode reader. Loaded lazily so the rest of the inventory system remains usable if CDN is unavailable.
+    if(!window.ZXingBrowser){
+      await loadVinScannerScript('https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js');
+    }
+    if(window.ZXingBrowser){
+      const Reader=window.ZXingBrowser.BrowserMultiFormatReader;
+      if(Reader){
+        vinScannerReader=new Reader();
+        vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result,error)=>{
+          if(result){acceptVinCandidate(result.getText(),'QR/barcode scan')}
+        });
+      }
+    }
+    // OCR runs against video frames periodically. It is a fallback for labels
+    // without a readable QR code. OCR text is never saved without confirmation.
+    if(!window.Tesseract){
+      try{await loadVinScannerScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js')}catch(e){}
+    }
+    if(window.Tesseract){
+      vinScannerOcrTimer=setInterval(()=>runVinOcr(video),2600);
+      setVinScannerStatus('Scanning QR/barcodes and reading printed VIN text. Keep the label steady and well lit.');
+    }else{
+      setVinScannerStatus('QR scanning is ready. Text recognition could not load; use manual entry if no QR code is detected.',true);
+    }
+  }catch(e){
+    stopVinScanner();
+    setVinScannerStatus(e.message||'Could not start the camera. Check browser permissions.',true);
+  }finally{
+    vinScannerStarting=false;start.disabled=false;start.textContent='Start camera';
+  }
+}
+function loadVinScannerScript(src){
+  return new Promise((resolve,reject)=>{
+    const existing=[...document.scripts].find(s=>s.src===src);
+    if(existing){
+      if(existing.dataset.loaded==='true')return resolve();
+      existing.addEventListener('load',()=>resolve(),{once:true});
+      existing.addEventListener('error',()=>reject(new Error('Scanner library could not load.')),{once:true});
+      return;
+    }
+    const script=document.createElement('script');script.src=src;script.async=true;
+    script.onload=()=>{script.dataset.loaded='true';resolve()};
+    script.onerror=()=>reject(new Error('Scanner library could not load.'));
+    document.head.appendChild(script);
+  });
+}
+async function runVinOcr(video){
+  if(vinScannerOcrBusy || !video || video.readyState<2 || !window.Tesseract || !$('vin-scan-modal').classList.contains('is-open'))return;
+  vinScannerOcrBusy=true;
+  try{
+    const canvas=document.createElement('canvas');
+    const maxWidth=1100;
+    const scale=Math.min(1,maxWidth/(video.videoWidth||maxWidth));
+    canvas.width=Math.max(1,Math.round((video.videoWidth||640)*scale));
+    canvas.height=Math.max(1,Math.round((video.videoHeight||480)*scale));
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const result=await window.Tesseract.recognize(canvas,'eng',{logger:()=>{}});
+    const text=result?.data?.text||'';
+    if(acceptVinCandidate(text,'VIN text recognition'))return;
+    // VIN labels may be vertical; rotate the captured frame and try again if
+    // normal orientation did not produce a candidate.
+    const rotated=document.createElement('canvas');rotated.width=canvas.height;rotated.height=canvas.width;
+    const rctx=rotated.getContext('2d',{willReadFrequently:true});
+    rctx.translate(rotated.width/2,rotated.height/2);rctx.rotate(Math.PI/2);rctx.drawImage(canvas,-canvas.width/2,-canvas.height/2);
+    const rotatedResult=await window.Tesseract.recognize(rotated,'eng',{logger:()=>{}});
+    if(acceptVinCandidate(rotatedResult?.data?.text||'','rotated VIN text recognition'))return;
+  }catch(e){/* Camera remains available; the user can still scan QR or enter manually. */}
+  finally{vinScannerOcrBusy=false}
+}
+$('open-vin-scanner')?.addEventListener('click',showVinScanner);
+$('vin-scan-close')?.addEventListener('click',hideVinScanner);
+$('vin-scan-stop')?.addEventListener('click',stopVinScanner);
+$('vin-scan-start')?.addEventListener('click',startVinScanner);
+$('vin-scan-modal')?.addEventListener('click',e=>{if(e.target===$('vin-scan-modal'))hideVinScanner()});
+$('vin-scan-torch')?.addEventListener('click',async()=>{
+  if(!vinScannerTrack){setVinScannerStatus('Start the camera first to use the flashlight.',true);return}
+  try{
+    const capabilities=vinScannerTrack.getCapabilities?vinScannerTrack.getCapabilities():{};
+    if(!capabilities.torch){setVinScannerStatus('Flashlight control is not supported by this phone/browser. Use the phone flashlight manually.',true);return}
+    vinScannerTorchOn=!vinScannerTorchOn;
+    await vinScannerTrack.applyConstraints({advanced:[{torch:vinScannerTorchOn}]});
+    $('vin-scan-torch').textContent=vinScannerTorchOn?'Turn flashlight off':'Flashlight';
+  }catch(e){setVinScannerStatus('Could not control the flashlight on this device.',true)}
+});
+$('vin-scan-manual')?.addEventListener('click',()=>{
+  stopVinScanner();$('vin-scan-value').focus();
+  setVinScannerStatus('Enter the VIN manually, then confirm to check inventory.');
+});
+$('vin-scan-check')?.addEventListener('click',async()=>{
+  const vin=$('vin-scan-value').value.trim().toUpperCase().replace(/\s+/g,'');
+  if(vin.length<3){setVinScannerStatus('Enter or scan a VIN/chassis number first.',true);$('vin-scan-value').focus();return}
+  $('vin-scan-value').value=vin;
+  const btn=$('vin-scan-check');btn.disabled=true;btn.textContent='Checking inventory…';
+  try{
+    let vehicle=null;
+    try{vehicle=await api('/inventory/'+encodeURIComponent(vin))}catch(e){
+      if(!String(e.message||'').includes('404') && !String(e.message||'').toLowerCase().includes('not found'))throw e;
+    }
+    hideVinScanner();
+    if(vehicle){
+      notify('This VIN is already registered. Opening vehicle details.');
+      await window.openVehicleInfo(encodeURIComponent(vin));
+      return;
+    }
+    if(!canManageStock()){
+      notify('This VIN is not registered. Your role cannot receive new vehicles; ask a stock manager or admin.',true);
+      return;
+    }
+    $('vehicle-vin').value=vin;
+    $('vehicle-modal').classList.remove('hidden');$('vehicle-modal').classList.add('flex');
+    notify('New VIN detected. Complete the vehicle details to register it.');
+    setTimeout(()=>$('vehicle-brand').focus(),100);
+  }catch(e){
+    setVinScannerStatus('Could not check the inventory: '+e.message,true);
+  }finally{btn.disabled=false;btn.textContent='Confirm & check inventory'}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape' && $('vin-scan-modal')?.classList.contains('is-open'))hideVinScanner()});
 
 // 11M. INITIALIZATION: restore the session or show the login screen
 if(authToken)startApp();else setLoggedIn(false);
