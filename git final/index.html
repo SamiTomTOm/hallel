@@ -919,15 +919,16 @@ async function startVinScanner(){
     }
     // OCR runs against video frames periodically. It is a fallback for labels
     // without a readable QR code. OCR text is never saved without confirmation.
-    if(!window.Tesseract){
-      try{await loadVinScannerScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js')}catch(e){}
-    }
-    if(window.Tesseract){
-      vinScannerOcrTimer=setInterval(()=>runVinOcr(video),2600);
-      setVinScannerStatus('Scanning QR/barcodes and reading printed VIN text. Keep the label steady and well lit.');
-    }else{
-      setVinScannerStatus('QR scanning is ready. Text recognition could not load; use manual entry if no QR code is detected.',true);
-    }
+    // Start OCR engine once in the background. QR scanning remains active while it loads.
+    getVinOcrWorker().then(worker=>{
+      if(!$('vin-scan-modal').classList.contains('is-open'))return;
+      if(worker){
+        if(!vinScannerOcrTimer)vinScannerOcrTimer=setInterval(()=>runVinOcr(video),1800);
+        setVinScannerStatus('Scanning QR codes and reading VIN text. Keep the label inside the green frame and move closer until the characters are sharp.');
+      }else{
+        setVinScannerStatus('QR scanning is active, but text recognition could not load. Try Scan QR or enter the VIN manually.',true);
+      }
+    });
   }catch(e){
     stopVinScanner();
     setVinScannerStatus(e.message||'Could not start the camera. Check browser permissions.',true);
@@ -950,29 +951,65 @@ function loadVinScannerScript(src){
     document.head.appendChild(script);
   });
 }
+let vinOcrWorker = null;
+let vinOcrWorkerStarting = false;
+async function getVinOcrWorker(){
+  if(vinOcrWorker) return vinOcrWorker;
+  if(vinOcrWorkerStarting) return null;
+  vinOcrWorkerStarting = true;
+  try{
+    if(!window.Tesseract) await loadVinScannerScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+    if(!window.Tesseract) return null;
+    // Keep one OCR worker alive instead of starting a new engine for every frame.
+    vinOcrWorker = await window.Tesseract.createWorker('eng', 1, { logger: () => {} });
+    await vinOcrWorker.setParameters({
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+      tessedit_pageseg_mode: window.Tesseract.PSM ? window.Tesseract.PSM.SINGLE_LINE : '7'
+    });
+    return vinOcrWorker;
+  }catch(e){
+    vinOcrWorker = null;
+    return null;
+  }finally{vinOcrWorkerStarting = false;}
+}
 async function runVinOcr(video){
-  if(vinScannerOcrBusy || !video || video.readyState<2 || !window.Tesseract || !$('vin-scan-modal').classList.contains('is-open'))return;
+  if(vinScannerOcrBusy || !video || video.readyState<2 || !$('vin-scan-modal').classList.contains('is-open'))return;
   vinScannerOcrBusy=true;
   try{
+    const worker=await getVinOcrWorker();
+    if(!worker || !video.videoWidth || !video.videoHeight)return;
+    // OCR only the central scan guide area. This makes small VIN labels larger
+    // and reduces reflections/background text compared with OCR-ing the whole view.
+    const vw=video.videoWidth, vh=video.videoHeight;
+    const sx=Math.round(vw*0.08), sy=Math.round(vh*0.18);
+    const sw=Math.round(vw*0.84), sh=Math.round(vh*0.64);
     const canvas=document.createElement('canvas');
-    const maxWidth=1100;
-    const scale=Math.min(1,maxWidth/(video.videoWidth||maxWidth));
-    canvas.width=Math.max(1,Math.round((video.videoWidth||640)*scale));
-    canvas.height=Math.max(1,Math.round((video.videoHeight||480)*scale));
+    const scale=Math.min(2.2, 1800/Math.max(sw,sh));
+    canvas.width=Math.max(1,Math.round(sw*scale)); canvas.height=Math.max(1,Math.round(sh*scale));
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
-    ctx.drawImage(video,0,0,canvas.width,canvas.height);
-    const result=await window.Tesseract.recognize(canvas,'eng',{logger:()=>{}});
-    const text=result?.data?.text||'';
-    if(acceptVinCandidate(text,'VIN text recognition'))return;
-    // VIN labels may be vertical; rotate the captured frame and try again if
-    // normal orientation did not produce a candidate.
-    const rotated=document.createElement('canvas');rotated.width=canvas.height;rotated.height=canvas.width;
+    ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+    // Increase contrast before OCR to help with white text on dark glass.
+    const image=ctx.getImageData(0,0,canvas.width,canvas.height);
+    for(let i=0;i<image.data.length;i+=4){
+      const y=0.299*image.data[i]+0.587*image.data[i+1]+0.114*image.data[i+2];
+      const v=y>145?255:Math.max(0,Math.min(255,(y-70)*2.0));
+      image.data[i]=image.data[i+1]=image.data[i+2]=v;
+    }
+    ctx.putImageData(image,0,0);
+    const result=await worker.recognize(canvas);
+    const recognized=result?.data?.text||'';
+    if(acceptVinCandidate(recognized,'VIN text recognition'))return;
+    // Retry the cropped scan region rotated 90 degrees for vertical labels.
+    const rotated=document.createElement('canvas');
+    rotated.width=canvas.height;rotated.height=canvas.width;
     const rctx=rotated.getContext('2d',{willReadFrequently:true});
-    rctx.translate(rotated.width/2,rotated.height/2);rctx.rotate(Math.PI/2);rctx.drawImage(canvas,-canvas.width/2,-canvas.height/2);
-    const rotatedResult=await window.Tesseract.recognize(rotated,'eng',{logger:()=>{}});
-    if(acceptVinCandidate(rotatedResult?.data?.text||'','rotated VIN text recognition'))return;
-  }catch(e){/* Camera remains available; the user can still scan QR or enter manually. */}
-  finally{vinScannerOcrBusy=false}
+    rctx.translate(rotated.width/2,rotated.height/2);rctx.rotate(Math.PI/2);
+    rctx.drawImage(canvas,-canvas.width/2,-canvas.height/2);
+    const rotatedResult=await worker.recognize(rotated);
+    acceptVinCandidate(rotatedResult?.data?.text||'','rotated VIN text recognition');
+  }catch(e){
+    setVinScannerStatus('Text recognition is having trouble. Move closer, reduce glare, or use Scan QR / Manual VIN.',true);
+  }finally{vinScannerOcrBusy=false;}
 }
 $('open-vin-scanner')?.addEventListener('click',showVinScanner);
 $('vin-scan-close')?.addEventListener('click',hideVinScanner);
