@@ -891,65 +891,73 @@ function acceptVinCandidate(raw,source){
   return true;
 }
 async function startVinScanner(){
-  if(vinScannerStarting)return;
+  if(vinScannerStarting || vinScannerStream) return;
   vinScannerStarting=true;
-  const start=$('vin-scan-start');start.disabled=true;start.textContent='Starting…';
+  const start=$('vin-scan-start');
+  start.disabled=true; start.textContent='Requesting camera…';
+  let streamPromise=null;
   try{
     if(!window.isSecureContext && location.hostname!=='localhost' && location.hostname!=='127.0.0.1'){
-      throw new Error('Camera access requires HTTPS. Open the deployed app using its secure https:// address.');
+      throw new Error('Camera access requires HTTPS. Open the app using its https:// address.');
     }
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)throw new Error('This browser does not support camera access. Use a recent version of Chrome or Safari.');
-    const video=$('vin-scan-video');
-    // Camera permissions are remembered by the browser for this HTTPS origin.
-    // Check the current permission state first so returning users get clear feedback.
-    if(navigator.permissions && navigator.permissions.query){
-      try{
-        const permission=await navigator.permissions.query({name:'camera'});
-        if(permission.state==='denied'){
-          throw new Error('Camera access is blocked for this site. Open your browser site settings, allow Camera for the Hallel site, then try again.');
-        }
-      }catch(permissionError){
-        if(permissionError && permissionError.message && permissionError.message.includes('blocked for this site')) throw permissionError;
-        // Some browsers do not support querying camera permission; getUserMedia remains authoritative.
-      }
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      throw new Error('This browser does not support camera access. Please use an updated Chrome or Safari browser.');
     }
-    vinScannerStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    setVinScannerStatus('Requesting camera access. If your browser asks, choose Allow…');
+    // Race camera access against a timeout so the button can never stay on “Starting…” forever.
+    streamPromise=navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+    const timeoutPromise=new Promise((_,reject)=>setTimeout(()=>reject(new Error('Camera did not start within 15 seconds. Check the browser address-bar camera icon and site permissions, then try again.')),15000));
+    vinScannerStream=await Promise.race([streamPromise,timeoutPromise]);
     try{localStorage.setItem('hallelVinCameraPermissionGranted','true')}catch(e){}
-    video.srcObject=vinScannerStream;await video.play();
+    const video=$('vin-scan-video');
+    video.muted=true; video.autoplay=true; video.playsInline=true;
+    video.srcObject=vinScannerStream;
+    await new Promise((resolve,reject)=>{
+      if(video.readyState>=2 && video.videoWidth){resolve();return;}
+      const timer=setTimeout(()=>reject(new Error('Camera connected, but no video frames arrived. Close other camera apps and try again.')),8000);
+      video.onloadedmetadata=()=>{clearTimeout(timer);video.play().then(resolve).catch(reject)};
+      video.onerror=()=>{clearTimeout(timer);reject(new Error('The camera feed could not be displayed. Please close and reopen the scanner.'))};
+    });
+    if(video.paused) await video.play();
     vinScannerTrack=vinScannerStream.getVideoTracks()[0]||null;
-    setVinScannerStatus('Camera is running. QR and text scanning are active. Keep the VIN label steady inside the frame.');
-    // QR is attempted first, but a CDN/network failure must NOT stop the camera or OCR.
-    try{
-      if(!window.ZXingBrowser) await loadVinScannerScript('https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js');
-      if(window.ZXingBrowser){
+    setVinScannerStatus('Camera is running. Starting QR and VIN text recognition…');
+
+    // Run QR loading independently; a slow CDN must not block OCR startup.
+    (async()=>{
+      try{
+        if(!window.ZXingBrowser) await loadVinScannerScript('https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js');
+        if(!window.ZXingBrowser || !$('vin-scan-modal').classList.contains('is-open') || !vinScannerStream) return;
         const Reader=window.ZXingBrowser.BrowserMultiFormatReader;
         if(Reader){
           vinScannerReader=new Reader();
-          vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result,error)=>{
+          vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result)=>{
             if(result) acceptVinCandidate(result.getText(),'QR/barcode scan');
           });
         }
+      }catch(qrError){
+        setVinScannerStatus('QR scanner library unavailable; text recognition is still running. You can also enter the VIN manually.');
       }
-    }catch(qrError){
-      setVinScannerStatus('QR library is unavailable; continuing with VIN text recognition. Keep the label inside the frame.');
-    }
-    // OCR runs against video frames periodically. It is a fallback for labels
-    // without a readable QR code. OCR text is never saved without confirmation.
-    // Start OCR engine once in the background. QR scanning remains active while it loads.
+    })();
+
+    // OCR is started independently from QR, and status reflects whether the engine loads.
     getVinOcrWorker().then(worker=>{
-      if(!$('vin-scan-modal').classList.contains('is-open'))return;
+      if(!$('vin-scan-modal').classList.contains('is-open') || !vinScannerStream) return;
       if(worker){
-        if(!vinScannerOcrTimer)vinScannerOcrTimer=setInterval(()=>runVinOcr(video),1800);
-        setVinScannerStatus('Scanning QR codes and reading VIN text. Keep the label inside the green frame and move closer until the characters are sharp.');
+        if(!vinScannerOcrTimer) vinScannerOcrTimer=setInterval(()=>runVinOcr(video),1400);
+        setVinScannerStatus('Camera is live. Scanning QR and VIN text. Keep the label inside the frame; move closer and reduce glare if needed.');
       }else{
-        setVinScannerStatus('QR scanning is active, but text recognition could not load. Try Scan QR or enter the VIN manually.',true);
+        setVinScannerStatus('Camera is live, but text recognition could not load. Check your internet connection, try QR scanning, or enter the VIN manually.',true);
       }
-    });
+    }).catch(()=>setVinScannerStatus('Camera is live, but text recognition could not load. Try QR scanning or enter the VIN manually.',true));
   }catch(e){
+    // If getUserMedia resolves after our timeout, stop that late stream immediately.
+    if(streamPromise) streamPromise.then(lateStream=>{if(lateStream && lateStream!==vinScannerStream)lateStream.getTracks().forEach(t=>t.stop())}).catch(()=>{});
     stopVinScanner();
-    setVinScannerStatus(e.message||'Could not start the camera. Check browser permissions.',true);
+    setVinScannerStatus(e.name==='NotAllowedError'?'Camera permission is blocked. Allow Camera for this website in browser site settings, then try again.':e.name==='NotFoundError'?'No camera was found on this device.':e.name==='NotReadableError'?'The camera is busy or being used by another app. Close other camera apps and try again.':(e.message||'Could not start the camera. Check browser permissions.'),true);
   }finally{
-    vinScannerStarting=false;start.disabled=false;start.textContent='Start camera';
+    vinScannerStarting=false;
+    start.disabled=false;
+    start.textContent='Start camera';
   }
 }
 function loadVinScannerScript(src){
@@ -996,10 +1004,10 @@ async function runVinOcr(video){
     if(!worker || !video.videoWidth || !video.videoHeight)return;
     const vw=video.videoWidth, vh=video.videoHeight;
     // Use the central majority of the live image, then upscale substantially for small windshield labels.
-    const sx=Math.round(vw*0.04), sy=Math.round(vh*0.20);
-    const sw=Math.round(vw*0.92), sh=Math.round(vh*0.60);
+    const sx=Math.round(vw*0.05), sy=Math.round(vh*0.25);
+    const sw=Math.round(vw*0.90), sh=Math.round(vh*0.50);
     const base=document.createElement('canvas');
-    const scale=Math.min(3, 2200/Math.max(sw,sh));
+    const scale=Math.min(3.5, 2600/Math.max(sw,sh));
     base.width=Math.max(1,Math.round(sw*scale)); base.height=Math.max(1,Math.round(sh*scale));
     const bctx=base.getContext('2d',{willReadFrequently:true});
     bctx.imageSmoothingEnabled=true; bctx.imageSmoothingQuality='high';
