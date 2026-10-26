@@ -229,6 +229,27 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
  #inventory-stats .stat p:last-child{display:none!important}
 }
 </style>
+<style id="hallel-mobile-modals">
+@media(max-width:767px){
+ /* Pop-ups must sit above the sticky header (85) and the bottom bar (80), otherwise their X / Submit are hidden behind them */
+ #vehicle-modal,#booking-modal,#sale-modal,#user-password-modal{z-index:1100!important;padding:8px!important}
+ #vehicle-modal>div,#booking-modal>div,#sale-modal>div,#user-password-modal>div{
+  max-height:calc(100vh - 16px)!important;max-height:calc(100dvh - 16px)!important;
+  padding:16px!important;overflow-y:auto!important;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+ /* Title bar with the X button stays pinned at the top while the form scrolls */
+ #vehicle-modal>div>div:first-child,#booking-modal>div>div:first-child,#sale-modal>div>div:first-child,#user-password-modal>div>div:first-child{
+  position:sticky;top:0;z-index:5;background:#fff;margin:-16px -16px 14px!important;padding:14px 16px 10px;border-bottom:1px solid #e1eae5}
+ /* Cancel + Submit stay pinned at the bottom (above the phone's home bar) */
+ #vehicle-modal form>div:last-child,#booking-modal form>div:last-child,#sale-modal form>div:last-child,#user-password-modal form>div:last-child{
+  position:sticky;bottom:0;z-index:5;display:flex!important;flex-wrap:nowrap!important;gap:8px;background:#fff;
+  margin:8px -16px -16px!important;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid #e1eae5}
+ #vehicle-modal form>div:last-child .btn,#booking-modal form>div:last-child .btn,#sale-modal form>div:last-child .btn,#user-password-modal form>div:last-child .btn{flex:1 1 0;min-height:46px}
+ /* Other pop-ups: size to the visible screen so nothing is cut off by the browser toolbars */
+ .hal-modal-card{max-height:calc(100vh - 20px)!important;max-height:calc(100dvh - 20px)!important}
+ /* Notifications must show above pop-ups, at the top so they never cover the buttons */
+ .toast{z-index:1200!important;left:10px!important;right:10px!important;bottom:auto!important;top:calc(10px + env(safe-area-inset-top,0px))!important;max-width:none!important}
+}
+</style>
 <style id="hallel-vin-scanner-styles">
 #vin-scan-modal{position:fixed;inset:0;z-index:1000;background:rgba(2,10,7,.92);display:none;align-items:center;justify-content:center;padding:14px;color:#f4fff8}
 #vin-scan-modal.is-open{display:flex}
@@ -875,9 +896,10 @@ function findVinCandidates(raw,{strict=false}={}){
   const fix=t=>t.replace(/[OQ]/g,'0').replace(/I/g,'1');
   const plausible=w=>{
     if(!STD.test(w))return false;
-    if(vinChecksumOk(w))return true;
     // Real VINs end in digits; this rejects ordinary words and noise read as text.
-    return /\d{4}$/.test(w)&&(w.match(/\d/g)||[]).length>=5;
+    const tail=/\d{4}$/.test(w)&&(w.match(/\d/g)||[]).length>=5;
+    if(strict)return tail;            // camera text: always require the digit ending
+    return tail||vinChecksumOk(w);    // QR/barcode data is error-checked, so a valid check digit is enough
   };
   const add=(vin,exact,end)=>{
     const old=found.get(vin);
@@ -937,19 +959,48 @@ function stopVinScanner(){
   const torch=$('vin-scan-torch');if(torch)torch.textContent='Flashlight';
   setVinScannerStatus('Camera stopped.');
 }
-let vinOcrVotes=new Map();
+let vinOcrReads=[], vinScanStartedAt=0, vinNonStdHits=new Map(), vinOcrCycle=0;
 function extractVinFromQr(raw){return normalizeVinCandidate(raw)}
+// OCR misreads are usually random and differ from frame to frame, so combine the last few reads
+// character by character and only trust positions where most reads agree.
+function vinOcrConsensus(){
+  if(vinOcrReads.length<3)return null;
+  let out='';
+  for(let i=0;i<17;i++){
+    const tally={};
+    for(const r of vinOcrReads)tally[r[i]]=(tally[r[i]]||0)+1;
+    const top=Object.entries(tally).sort((a,b)=>b[1]-a[1])[0];
+    if(top[1]<Math.ceil(vinOcrReads.length*0.6))return null;
+    out+=top[0];
+  }
+  return /^[A-HJ-NPR-Z0-9]{17}$/.test(out)?out:null;
+}
+// Returns true when a VIN was accepted, 'pending' when a candidate was seen but is not trusted yet, false otherwise.
 function acceptVinCandidate(raw,source,strict=false){
   if(!vinScannerStream)return false; // scanner already stopped: ignore late results
   const list=findVinCandidates(raw,{strict});
   if(!list.length)return false;
-  const best=list[0];
+  let best=list[0];
   const input=$('vin-scan-value');
-  if(strict&&!best.checksum){
-    // Camera text recognition can misread a character. Without a valid check digit,
-    // require the same reading in two scans before accepting it.
-    const seen=(vinOcrVotes.get(best.vin)||0)+1;vinOcrVotes.set(best.vin,seen);
-    if(seen<2){input.value=best.vin;setVinScannerStatus('Possible VIN: '+best.vin+' — hold steady to verify…');return false}
+  if(strict){
+    // Camera text is never trusted from a single frame: a misread character can even pass the check digit by chance.
+    vinOcrReads.push(best.vin);if(vinOcrReads.length>7)vinOcrReads.shift();
+    input.value=best.vin;
+    const sameReads=vinOcrReads.filter(r=>r===best.vin).length;
+    if(!(best.checksum&&sameReads>=2)){
+      const consensus=vinOcrConsensus();
+      if(!consensus){setVinScannerStatus('Possible VIN: '+best.vin+' — hold steady to verify…');return 'pending'}
+      best={vin:consensus,standard:true,checksum:vinChecksumOk(consensus)};
+    }
+  }
+  if(!strict&&!best.standard){
+    // A barcode that is not a 17-character VIN is often some other number printed next to the VIN
+    // (production / order number). Keep looking for the real VIN before settling for it.
+    const hits=(vinNonStdHits.get(best.vin)||0)+1;vinNonStdHits.set(best.vin,hits);
+    if(hits<3||Date.now()-vinScanStartedAt<6000){
+      setVinScannerStatus('Found code '+best.vin+'. Still looking for the 17-character VIN — keep the printed VIN inside the frame…');
+      return 'pending';
+    }
   }
   input.value=best.vin;
   stopVinScanner();
@@ -984,8 +1035,11 @@ async function startVinScanner(){
     try{localStorage.setItem('hallelVinCameraPermissionGranted','true')}catch(e){}
     video.srcObject=vinScannerStream;await video.play();
     vinScannerTrack=vinScannerStream.getVideoTracks()[0]||null;
+    // Ask for continuous autofocus where the phone allows it (blurry frames are the main cause of misreads)
+    try{const caps=vinScannerTrack&&vinScannerTrack.getCapabilities?vinScannerTrack.getCapabilities():{};
+      if(caps.focusMode&&caps.focusMode.includes('continuous'))await vinScannerTrack.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(focusError){}
     setVinScannerStatus('Camera is running. QR and text scanning are active. Keep the VIN label steady inside the frame.');
-    vinOcrVotes=new Map();
+    vinOcrReads=[];vinNonStdHits=new Map();vinOcrCycle=0;vinScanStartedAt=Date.now();
     // QR/barcode scanning. A CDN failure must NOT stop the camera or OCR.
     let qrReady=false;
     try{
@@ -995,7 +1049,12 @@ async function startVinScanner(){
         }
       }
       if(window.ZXingBrowser&&window.ZXingBrowser.BrowserMultiFormatReader){
-        vinScannerReader=new window.ZXingBrowser.BrowserMultiFormatReader();
+        // Try-harder mode, only the formats VIN labels use (Code 39/93/128, Data Matrix, PDF417, QR), faster retries.
+        // Numeric values are ZXing's enum ids: POSSIBLE_FORMATS=2, TRY_HARDER=3.
+        const hints=new Map();
+        hints.set(2,[2,3,4,5,10,11]);
+        hints.set(3,true);
+        vinScannerReader=new window.ZXingBrowser.BrowserMultiFormatReader(hints,{delayBetweenScanAttempts:150,delayBetweenScanSuccess:300});
         vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result,error)=>{
           if(result)acceptVinCandidate(result.getText(),'QR/barcode scan');
         });
@@ -1111,7 +1170,7 @@ async function runVinOcr(video){
     recognized=await tryRecognize(gray);
     if(acceptVinCandidate(recognized,'VIN text recognition',true))return;
     // Pass 3: rotate both ways to support vertical VIN labels.
-    for(const angle of [Math.PI/2,-Math.PI/2]){
+    for(const angle of (++vinOcrCycle%3===0?[Math.PI/2,-Math.PI/2]:[])){
       const rotated=document.createElement('canvas'); rotated.width=gray.height; rotated.height=gray.width;
       const rctx=rotated.getContext('2d',{willReadFrequently:true});
       rctx.translate(rotated.width/2,rotated.height/2);rctx.rotate(angle);rctx.drawImage(gray,-gray.width/2,-gray.height/2);
