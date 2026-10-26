@@ -830,19 +830,63 @@ let vinScannerTorchOn = false;
 let vinScannerTrack = null;
 let vinScannerStarting = false;
 
-function normalizeVinCandidate(raw){
-  if(!raw) return '';
-  const text=String(raw).toUpperCase().replace(/[\u200B-\u200D\uFEFF]/g,'');
-  // Prefer a standard 17-character VIN, excluding I, O and Q.
-  const compact=text.replace(/[^A-Z0-9]/g,'');
-  const standard=compact.match(/[A-HJ-NPR-Z0-9]{17}/);
-  if(standard) return standard[0];
-  // Hallel also receives non-standard/import chassis formats. Accept a long
-  // alphanumeric token for review, but never save it without user confirmation.
-  const tokens=text.match(/[A-Z0-9][A-Z0-9 -]{9,28}[A-Z0-9]/g)||[];
-  const candidate=tokens.map(t=>t.replace(/[^A-Z0-9]/g,'')).sort((a,b)=>b.length-a.length)[0]||'';
-  return candidate.length>=10 && candidate.length<=30 ? candidate : '';
+const VIN_TRANSLIT={A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9};
+const VIN_WEIGHTS=[8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+function vinChecksumOk(vin){
+  if(!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin))return false;
+  let sum=0;
+  for(let i=0;i<17;i++){const c=vin[i];sum+=(/\d/.test(c)?Number(c):VIN_TRANSLIT[c])*VIN_WEIGHTS[i]}
+  const r=sum%11;
+  return vin[8]===(r===10?'X':String(r));
 }
+// Finds VIN candidates in scanned text, best first. Works line by line / token by token so that
+// other text on the label can never be glued onto the VIN.
+// strict=true is used for OCR (camera-read text), which is noisy; strict=false for QR/barcodes.
+function findVinCandidates(raw,{strict=false}={}){
+  if(!raw)return [];
+  const text=String(raw).toUpperCase().replace(/[\u200B-\u200D\uFEFF]/g,'');
+  const found=new Map();
+  const STD=/^[A-HJ-NPR-Z0-9]{17}$/;
+  // VINs never contain I, O or Q, so OCR look-alikes are corrected to 1 / 0.
+  const fix=t=>t.replace(/[OQ]/g,'0').replace(/I/g,'1');
+  const plausible=w=>{
+    if(!STD.test(w))return false;
+    if(vinChecksumOk(w))return true;
+    // Real VINs end in digits; this rejects ordinary words and noise read as text.
+    return /\d{4}$/.test(w)&&(w.match(/\d/g)||[]).length>=5;
+  };
+  const add=(vin,exact,end)=>{
+    const old=found.get(vin);
+    if(old){old.exact=old.exact||exact;old.end=old.end||end}
+    else found.set(vin,{vin,standard:true,checksum:vinChecksumOk(vin),exact,end});
+  };
+  const scan=str=>{
+    const fixed=fix(str);
+    for(let i=0;i+17<=fixed.length;i++){
+      const w=fixed.slice(i,i+17);
+      if(plausible(w))add(w,fixed.length===17,i+17===fixed.length);
+    }
+  };
+  for(const rawLine of text.split(/[\r\n]+/)){
+    // drop label words such as "VIN:", "CHASSIS NO." before reading the line
+    const line=rawLine.replace(/\b(VIN|CHASSIS|FRAME)\b\s*(NO\.?|NUMBER|NUM\.?|#)?\s*[:=#.-]*/g,' ');
+    // (a) tokens (handles URLs, "VIN=...", key:value strings)
+    for(const tok of line.split(/[^A-Z0-9]+/))if(tok.length>=17&&tok.length<=40)scan(tok);
+    // (b) whole line, tolerating spaces/dashes inside the VIN and a short prefix/suffix
+    const compact=line.replace(/[^A-Z0-9]/g,'');
+    if(compact.length>=17&&compact.length<=24)scan(compact);
+  }
+  // Non-standard / import chassis numbers: only from QR/barcode data, never from noisy OCR.
+  if(!strict&&!found.size){
+    for(const tok of text.split(/[\s,;|]+/)){
+      const t=tok.replace(/[^A-Z0-9]/g,'');
+      if(t.length>=10&&t.length<=30&&/[A-Z]/.test(t)&&(t.match(/\d/g)||[]).length>=3)
+        found.set(t,{vin:t,standard:false,checksum:false,exact:true,end:true});
+    }
+  }
+  return [...found.values()].sort((a,b)=>(b.exact-a.exact)||(b.checksum-a.checksum)||(b.end-a.end));
+}
+function normalizeVinCandidate(raw){const c=findVinCandidates(raw);return c.length?c[0].vin:''}
 function setVinScannerStatus(message,isError=false){
   const el=$('vin-scan-status');
   if(el){el.textContent=message;el.style.color=isError?'#ffb4b4':'#b7cabe'}
@@ -869,132 +913,139 @@ function stopVinScanner(){
   const torch=$('vin-scan-torch');if(torch)torch.textContent='Flashlight';
   setVinScannerStatus('Camera stopped.');
 }
-function extractVinFromQr(raw){
-  const text=String(raw||'').trim();
-  // QR payload may be the VIN itself, a URL, or a labelled key/value string.
-  const direct=normalizeVinCandidate(text);
-  if(direct) return direct;
-  const labelled=text.match(/(?:VIN|CHASSIS|FRAME)\s*[:=#-]?\s*([A-Z0-9 -]{10,30})/i);
-  return labelled?normalizeVinCandidate(labelled[1]):'';
-}
-function acceptVinCandidate(raw,source){
-  const candidate=extractVinFromQr(raw);
-  if(!candidate)return false;
+let vinOcrVotes=new Map();
+function extractVinFromQr(raw){return normalizeVinCandidate(raw)}
+function acceptVinCandidate(raw,source,strict=false){
+  if(!vinScannerStream)return false; // scanner already stopped: ignore late results
+  const list=findVinCandidates(raw,{strict});
+  if(!list.length)return false;
+  const best=list[0];
   const input=$('vin-scan-value');
-  const now=Date.now();
-  if(candidate===vinScannerLastCandidate && now-vinScannerLastCandidateAt<2500)return true;
-  vinScannerLastCandidate=candidate;vinScannerLastCandidateAt=now;
-  input.value=candidate;
-  // Pause scanning after a likely match so the user can verify the value.
+  if(strict&&!best.checksum){
+    // Camera text recognition can misread a character. Without a valid check digit,
+    // require the same reading in two scans before accepting it.
+    const seen=(vinOcrVotes.get(best.vin)||0)+1;vinOcrVotes.set(best.vin,seen);
+    if(seen<2){input.value=best.vin;setVinScannerStatus('Possible VIN: '+best.vin+' — hold steady to verify…');return false}
+  }
+  input.value=best.vin;
   stopVinScanner();
-  setVinScannerStatus('VIN detected using '+source+'. Verify the characters, then tap “Confirm & check inventory”.');
+  const note=best.standard&&!best.checksum?' The check digit does not match, so compare every character with the label.':'';
+  setVinScannerStatus('VIN detected using '+source+'. Verify the characters, then tap “Confirm & check inventory”.'+note);
   return true;
 }
 async function startVinScanner(){
-  if(vinScannerStarting || vinScannerStream) return;
+  if(vinScannerStarting)return;
   vinScannerStarting=true;
-  const start=$('vin-scan-start');
-  start.disabled=true; start.textContent='Requesting camera…';
-  let streamPromise=null;
+  const start=$('vin-scan-start');start.disabled=true;start.textContent='Starting…';
   try{
     if(!window.isSecureContext && location.hostname!=='localhost' && location.hostname!=='127.0.0.1'){
-      throw new Error('Camera access requires HTTPS. Open the app using its https:// address.');
+      throw new Error('Camera access requires HTTPS. Open the deployed app using its secure https:// address.');
     }
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      throw new Error('This browser does not support camera access. Please use an updated Chrome or Safari browser.');
-    }
-    setVinScannerStatus('Requesting camera access. If your browser asks, choose Allow…');
-    // Race camera access against a timeout so the button can never stay on “Starting…” forever.
-    streamPromise=navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-    const timeoutPromise=new Promise((_,reject)=>setTimeout(()=>reject(new Error('Camera did not start within 15 seconds. Check the browser address-bar camera icon and site permissions, then try again.')),15000));
-    vinScannerStream=await Promise.race([streamPromise,timeoutPromise]);
-    try{localStorage.setItem('hallelVinCameraPermissionGranted','true')}catch(e){}
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)throw new Error('This browser does not support camera access. Use a recent version of Chrome or Safari.');
     const video=$('vin-scan-video');
-    video.muted=true; video.autoplay=true; video.playsInline=true;
-    video.srcObject=vinScannerStream;
-    await new Promise((resolve,reject)=>{
-      if(video.readyState>=2 && video.videoWidth){resolve();return;}
-      const timer=setTimeout(()=>reject(new Error('Camera connected, but no video frames arrived. Close other camera apps and try again.')),8000);
-      video.onloadedmetadata=()=>{clearTimeout(timer);video.play().then(resolve).catch(reject)};
-      video.onerror=()=>{clearTimeout(timer);reject(new Error('The camera feed could not be displayed. Please close and reopen the scanner.'))};
-    });
-    if(video.paused) await video.play();
-    vinScannerTrack=vinScannerStream.getVideoTracks()[0]||null;
-    setVinScannerStatus('Camera is running. Starting QR and VIN text recognition…');
-
-    // Run QR loading independently; a slow CDN must not block OCR startup.
-    (async()=>{
+    // Camera permissions are remembered by the browser for this HTTPS origin.
+    // Check the current permission state first so returning users get clear feedback.
+    if(navigator.permissions && navigator.permissions.query){
       try{
-        if(!window.ZXingBrowser) await loadVinScannerScript('https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js');
-        if(!window.ZXingBrowser || !$('vin-scan-modal').classList.contains('is-open') || !vinScannerStream) return;
-        const Reader=window.ZXingBrowser.BrowserMultiFormatReader;
-        if(Reader){
-          vinScannerReader=new Reader();
-          vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result)=>{
-            if(result) acceptVinCandidate(result.getText(),'QR/barcode scan');
-          });
+        const permission=await navigator.permissions.query({name:'camera'});
+        if(permission.state==='denied'){
+          throw new Error('Camera access is blocked for this site. Open your browser site settings, allow Camera for the Hallel site, then try again.');
         }
-      }catch(qrError){
-        setVinScannerStatus('QR scanner library unavailable; text recognition is still running. You can also enter the VIN manually.');
+      }catch(permissionError){
+        if(permissionError && permissionError.message && permissionError.message.includes('blocked for this site')) throw permissionError;
+        // Some browsers do not support querying camera permission; getUserMedia remains authoritative.
       }
-    })();
-
-    // OCR is started independently from QR, and status reflects whether the engine loads.
+    }
+    vinScannerStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    try{localStorage.setItem('hallelVinCameraPermissionGranted','true')}catch(e){}
+    video.srcObject=vinScannerStream;await video.play();
+    vinScannerTrack=vinScannerStream.getVideoTracks()[0]||null;
+    setVinScannerStatus('Camera is running. QR and text scanning are active. Keep the VIN label steady inside the frame.');
+    vinOcrVotes=new Map();
+    // QR/barcode scanning. A CDN failure must NOT stop the camera or OCR.
+    let qrReady=false;
+    try{
+      if(!window.ZXingBrowser){
+        for(const url of ['https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js','https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js']){
+          try{await loadVinScannerScript(url);if(window.ZXingBrowser)break}catch(libError){}
+        }
+      }
+      if(window.ZXingBrowser&&window.ZXingBrowser.BrowserMultiFormatReader){
+        vinScannerReader=new window.ZXingBrowser.BrowserMultiFormatReader();
+        vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result,error)=>{
+          if(result)acceptVinCandidate(result.getText(),'QR/barcode scan');
+        });
+        qrReady=true;
+      }
+    }catch(qrError){qrReady=false}
+    if(!vinScannerStream)return; // a code was already found, or the user pressed Stop
+    // OCR reads printed VIN text from video frames. Text is never saved without confirmation.
+    setVinScannerStatus(qrReady?'QR/barcode scanning is active. Loading text recognition…':'Barcode scanner could not load. Loading text recognition…');
     getVinOcrWorker().then(worker=>{
-      if(!$('vin-scan-modal').classList.contains('is-open') || !vinScannerStream) return;
+      if(!vinScannerStream)return; // stopped or already matched: do not overwrite the status
       if(worker){
-        if(!vinScannerOcrTimer) vinScannerOcrTimer=setInterval(()=>runVinOcr(video),1400);
-        setVinScannerStatus('Camera is live. Scanning QR and VIN text. Keep the label inside the frame; move closer and reduce glare if needed.');
+        if(!vinScannerOcrTimer)vinScannerOcrTimer=setInterval(()=>runVinOcr(video),1800);
+        setVinScannerStatus((qrReady?'Scanning QR/barcodes and reading VIN text. ':'Reading VIN text. ')+'Keep the label inside the green frame and move closer until the characters are sharp.');
+      }else if(qrReady){
+        setVinScannerStatus('QR/barcode scanning is active, but text recognition could not load (check the internet connection). You can also enter the VIN manually.',true);
       }else{
-        setVinScannerStatus('Camera is live, but text recognition could not load. Check your internet connection, try QR scanning, or enter the VIN manually.',true);
+        setVinScannerStatus('Neither scanner could load. Check the internet connection, or tap “Enter manually”.',true);
       }
-    }).catch(()=>setVinScannerStatus('Camera is live, but text recognition could not load. Try QR scanning or enter the VIN manually.',true));
+    });
   }catch(e){
-    // If getUserMedia resolves after our timeout, stop that late stream immediately.
-    if(streamPromise) streamPromise.then(lateStream=>{if(lateStream && lateStream!==vinScannerStream)lateStream.getTracks().forEach(t=>t.stop())}).catch(()=>{});
     stopVinScanner();
-    setVinScannerStatus(e.name==='NotAllowedError'?'Camera permission is blocked. Allow Camera for this website in browser site settings, then try again.':e.name==='NotFoundError'?'No camera was found on this device.':e.name==='NotReadableError'?'The camera is busy or being used by another app. Close other camera apps and try again.':(e.message||'Could not start the camera. Check browser permissions.'),true);
+    setVinScannerStatus(e.message||'Could not start the camera. Check browser permissions.',true);
   }finally{
-    vinScannerStarting=false;
-    start.disabled=false;
-    start.textContent='Start camera';
+    vinScannerStarting=false;start.disabled=false;start.textContent='Start camera';
   }
 }
 function loadVinScannerScript(src){
   return new Promise((resolve,reject)=>{
     const existing=[...document.scripts].find(s=>s.src===src);
-    if(existing){
-      if(existing.dataset.loaded==='true')return resolve();
-      existing.addEventListener('load',()=>resolve(),{once:true});
-      existing.addEventListener('error',()=>reject(new Error('Scanner library could not load.')),{once:true});
-      return;
-    }
+    if(existing&&existing.dataset.loaded==='true')return resolve();
+    if(existing)existing.remove(); // a previous attempt failed or stalled: start fresh so retries cannot hang
     const script=document.createElement('script');script.src=src;script.async=true;
-    script.onload=()=>{script.dataset.loaded='true';resolve()};
-    script.onerror=()=>reject(new Error('Scanner library could not load.'));
+    const timer=setTimeout(()=>{script.remove();reject(new Error('Scanner library timed out.'))},15000);
+    script.onload=()=>{clearTimeout(timer);script.dataset.loaded='true';resolve()};
+    script.onerror=()=>{clearTimeout(timer);script.remove();reject(new Error('Scanner library could not load.'))};
     document.head.appendChild(script);
   });
 }
 let vinOcrWorker = null;
-let vinOcrWorkerStarting = false;
-async function getVinOcrWorker(){
-  if(vinOcrWorker) return vinOcrWorker;
-  if(vinOcrWorkerStarting) return null;
-  vinOcrWorkerStarting = true;
-  try{
-    if(!window.Tesseract) await loadVinScannerScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
-    if(!window.Tesseract) return null;
-    // Keep one OCR worker alive instead of starting a new engine for every frame.
-    vinOcrWorker = await window.Tesseract.createWorker('eng', 1, { logger: () => {} });
-    await vinOcrWorker.setParameters({
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-      tessedit_pageseg_mode: window.Tesseract.PSM ? window.Tesseract.PSM.SINGLE_LINE : '7'
-    });
-    return vinOcrWorker;
-  }catch(e){
-    vinOcrWorker = null;
-    return null;
-  }finally{vinOcrWorkerStarting = false;}
+let vinOcrWorkerPromise = null;
+function getVinOcrWorker(){
+  if(vinOcrWorker)return Promise.resolve(vinOcrWorker);
+  if(vinOcrWorkerPromise)return vinOcrWorkerPromise;
+  vinOcrWorkerPromise=(async()=>{
+    try{
+      if(!window.Tesseract)await loadVinScannerScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
+      if(!window.Tesseract)return null;
+      const w=await window.Tesseract.createWorker('eng',1,{logger:()=>{}});
+      await w.setParameters({
+        tessedit_char_whitelist:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+        // Sparse text finds a VIN line anywhere in the frame; single-line mode only reads one line.
+        tessedit_pageseg_mode:window.Tesseract.PSM?window.Tesseract.PSM.SPARSE_TEXT:'11'
+      });
+      vinOcrWorker=w;return w;
+    }catch(e){return null}
+    finally{vinOcrWorkerPromise=null}
+  })();
+  return vinOcrWorkerPromise;
+}
+// Maps the green on-screen frame to video pixels (the <video> uses object-fit: cover, so it is cropped).
+function getVinFrameCrop(video){
+  const vw=video.videoWidth,vh=video.videoHeight;
+  const fallback={sx:Math.round(vw*0.08),sy:Math.round(vh*0.18),sw:Math.round(vw*0.84),sh:Math.round(vh*0.64)};
+  const frame=document.querySelector('.vin-scan-frame');
+  if(!frame)return fallback;
+  const vr=video.getBoundingClientRect(),fr=frame.getBoundingClientRect();
+  if(!vr.width||!vr.height||!fr.width)return fallback;
+  const k=Math.max(vr.width/vw,vr.height/vh);
+  const offX=(vw*k-vr.width)/2,offY=(vh*k-vr.height)/2;
+  let sx=(fr.left-vr.left+offX)/k,sy=(fr.top-vr.top+offY)/k,sw=fr.width/k,sh=fr.height/k;
+  const px=sw*0.03,py=sh*0.05;sx-=px;sy-=py;sw+=px*2;sh+=py*2;
+  sx=Math.max(0,sx);sy=Math.max(0,sy);sw=Math.min(vw-sx,sw);sh=Math.min(vh-sy,sh);
+  return sw>20&&sh>20?{sx:Math.round(sx),sy:Math.round(sy),sw:Math.round(sw),sh:Math.round(sh)}:fallback;
 }
 async function runVinOcr(video){
   if(vinScannerOcrBusy || !video || video.readyState<2 || !$('vin-scan-modal').classList.contains('is-open'))return;
@@ -1002,12 +1053,10 @@ async function runVinOcr(video){
   try{
     const worker=await getVinOcrWorker();
     if(!worker || !video.videoWidth || !video.videoHeight)return;
-    const vw=video.videoWidth, vh=video.videoHeight;
-    // Use the central majority of the live image, then upscale substantially for small windshield labels.
-    const sx=Math.round(vw*0.05), sy=Math.round(vh*0.25);
-    const sw=Math.round(vw*0.90), sh=Math.round(vh*0.50);
+    // Read only what is inside the green frame, then upscale for small windshield labels.
+    const {sx,sy,sw,sh}=getVinFrameCrop(video);
     const base=document.createElement('canvas');
-    const scale=Math.min(3.5, 2600/Math.max(sw,sh));
+    const scale=Math.min(3, 2200/Math.max(sw,sh));
     base.width=Math.max(1,Math.round(sw*scale)); base.height=Math.max(1,Math.round(sh*scale));
     const bctx=base.getContext('2d',{willReadFrequently:true});
     bctx.imageSmoothingEnabled=true; bctx.imageSmoothingQuality='high';
@@ -1028,7 +1077,7 @@ async function runVinOcr(video){
       return result?.data?.text||'';
     };
     let recognized=await tryRecognize(enhanced);
-    if(acceptVinCandidate(recognized,'VIN text recognition'))return;
+    if(acceptVinCandidate(recognized,'VIN text recognition',true))return;
     // Pass 2: unthresholded grayscale often works better on bright windshield labels.
     const gray=document.createElement('canvas'); gray.width=base.width; gray.height=base.height;
     const gctx=gray.getContext('2d',{willReadFrequently:true}); gctx.drawImage(base,0,0);
@@ -1036,14 +1085,14 @@ async function runVinOcr(video){
     for(let i=0;i<gimg.data.length;i+=4){const y=0.299*gimg.data[i]+0.587*gimg.data[i+1]+0.114*gimg.data[i+2];gimg.data[i]=gimg.data[i+1]=gimg.data[i+2]=y;}
     gctx.putImageData(gimg,0,0);
     recognized=await tryRecognize(gray);
-    if(acceptVinCandidate(recognized,'VIN text recognition'))return;
+    if(acceptVinCandidate(recognized,'VIN text recognition',true))return;
     // Pass 3: rotate both ways to support vertical VIN labels.
     for(const angle of [Math.PI/2,-Math.PI/2]){
       const rotated=document.createElement('canvas'); rotated.width=gray.height; rotated.height=gray.width;
       const rctx=rotated.getContext('2d',{willReadFrequently:true});
       rctx.translate(rotated.width/2,rotated.height/2);rctx.rotate(angle);rctx.drawImage(gray,-gray.width/2,-gray.height/2);
       recognized=await tryRecognize(rotated);
-      if(acceptVinCandidate(recognized,'rotated VIN text recognition'))return;
+      if(acceptVinCandidate(recognized,'rotated VIN text recognition',true))return;
     }
     setVinScannerStatus('Still scanning… move closer until the VIN fills more of the frame, reduce glare, or use Manual VIN.');
   }catch(e){
