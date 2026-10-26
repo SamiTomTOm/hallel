@@ -818,7 +818,7 @@ $('excel-import-selected').addEventListener('click',async()=>{
 });
 
 
-// 11N. VIN SCANNER: QR/barcode + OCR. No backend/database schema changes are needed.
+// 11N. VIN SCANNER: QR/barcode + OCR with persistent-origin permission guidance. No backend/database schema changes.
 let vinScannerStream = null;
 let vinScannerReader = null;
 let vinScannerControls = null;
@@ -850,7 +850,7 @@ function setVinScannerStatus(message,isError=false){
 function showVinScanner(){
   $('vin-scan-modal').classList.add('is-open');
   document.body.style.overflow='hidden';
-  setVinScannerStatus('Start the camera. The scanner checks QR codes first and also tries to read VIN text.');
+  setVinScannerStatus('The browser remembers camera permission for this site after you allow it. Scanner checks QR codes and VIN text automatically.');
   setTimeout(()=>$('vin-scan-start').focus(),50);
 }
 function hideVinScanner(){
@@ -900,22 +900,38 @@ async function startVinScanner(){
     }
     if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)throw new Error('This browser does not support camera access. Use a recent version of Chrome or Safari.');
     const video=$('vin-scan-video');
+    // Camera permissions are remembered by the browser for this HTTPS origin.
+    // Check the current permission state first so returning users get clear feedback.
+    if(navigator.permissions && navigator.permissions.query){
+      try{
+        const permission=await navigator.permissions.query({name:'camera'});
+        if(permission.state==='denied'){
+          throw new Error('Camera access is blocked for this site. Open your browser site settings, allow Camera for the Hallel site, then try again.');
+        }
+      }catch(permissionError){
+        if(permissionError && permissionError.message && permissionError.message.includes('blocked for this site')) throw permissionError;
+        // Some browsers do not support querying camera permission; getUserMedia remains authoritative.
+      }
+    }
     vinScannerStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    try{localStorage.setItem('hallelVinCameraPermissionGranted','true')}catch(e){}
     video.srcObject=vinScannerStream;await video.play();
     vinScannerTrack=vinScannerStream.getVideoTracks()[0]||null;
-    setVinScannerStatus('Camera is running. Hold the QR code or VIN text steady inside the frame.');
-    // QR/barcode reader. Loaded lazily so the rest of the inventory system remains usable if CDN is unavailable.
-    if(!window.ZXingBrowser){
-      await loadVinScannerScript('https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js');
-    }
-    if(window.ZXingBrowser){
-      const Reader=window.ZXingBrowser.BrowserMultiFormatReader;
-      if(Reader){
-        vinScannerReader=new Reader();
-        vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result,error)=>{
-          if(result){acceptVinCandidate(result.getText(),'QR/barcode scan')}
-        });
+    setVinScannerStatus('Camera is running. QR and text scanning are active. Keep the VIN label steady inside the frame.');
+    // QR is attempted first, but a CDN/network failure must NOT stop the camera or OCR.
+    try{
+      if(!window.ZXingBrowser) await loadVinScannerScript('https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js');
+      if(window.ZXingBrowser){
+        const Reader=window.ZXingBrowser.BrowserMultiFormatReader;
+        if(Reader){
+          vinScannerReader=new Reader();
+          vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result,error)=>{
+            if(result) acceptVinCandidate(result.getText(),'QR/barcode scan');
+          });
+        }
       }
+    }catch(qrError){
+      setVinScannerStatus('QR library is unavailable; continuing with VIN text recognition. Keep the label inside the frame.');
     }
     // OCR runs against video frames periodically. It is a fallback for labels
     // without a readable QR code. OCR text is never saved without confirmation.
@@ -978,37 +994,52 @@ async function runVinOcr(video){
   try{
     const worker=await getVinOcrWorker();
     if(!worker || !video.videoWidth || !video.videoHeight)return;
-    // OCR only the central scan guide area. This makes small VIN labels larger
-    // and reduces reflections/background text compared with OCR-ing the whole view.
     const vw=video.videoWidth, vh=video.videoHeight;
-    const sx=Math.round(vw*0.08), sy=Math.round(vh*0.18);
-    const sw=Math.round(vw*0.84), sh=Math.round(vh*0.64);
-    const canvas=document.createElement('canvas');
-    const scale=Math.min(2.2, 1800/Math.max(sw,sh));
-    canvas.width=Math.max(1,Math.round(sw*scale)); canvas.height=Math.max(1,Math.round(sh*scale));
-    const ctx=canvas.getContext('2d',{willReadFrequently:true});
-    ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
-    // Increase contrast before OCR to help with white text on dark glass.
-    const image=ctx.getImageData(0,0,canvas.width,canvas.height);
+    // Use the central majority of the live image, then upscale substantially for small windshield labels.
+    const sx=Math.round(vw*0.04), sy=Math.round(vh*0.20);
+    const sw=Math.round(vw*0.92), sh=Math.round(vh*0.60);
+    const base=document.createElement('canvas');
+    const scale=Math.min(3, 2200/Math.max(sw,sh));
+    base.width=Math.max(1,Math.round(sw*scale)); base.height=Math.max(1,Math.round(sh*scale));
+    const bctx=base.getContext('2d',{willReadFrequently:true});
+    bctx.imageSmoothingEnabled=true; bctx.imageSmoothingQuality='high';
+    bctx.drawImage(video,sx,sy,sw,sh,0,0,base.width,base.height);
+
+    // Pass 1: contrast-enhanced grayscale; retain a copy of the original crop as well.
+    const enhanced=document.createElement('canvas'); enhanced.width=base.width; enhanced.height=base.height;
+    const ectx=enhanced.getContext('2d',{willReadFrequently:true}); ectx.drawImage(base,0,0);
+    const image=ectx.getImageData(0,0,enhanced.width,enhanced.height);
     for(let i=0;i<image.data.length;i+=4){
       const y=0.299*image.data[i]+0.587*image.data[i+1]+0.114*image.data[i+2];
-      const v=y>145?255:Math.max(0,Math.min(255,(y-70)*2.0));
+      const v=Math.max(0,Math.min(255,(y-105)*2.15+128));
       image.data[i]=image.data[i+1]=image.data[i+2]=v;
     }
-    ctx.putImageData(image,0,0);
-    const result=await worker.recognize(canvas);
-    const recognized=result?.data?.text||'';
+    ectx.putImageData(image,0,0);
+    const tryRecognize=async canvas=>{
+      const result=await worker.recognize(canvas);
+      return result?.data?.text||'';
+    };
+    let recognized=await tryRecognize(enhanced);
     if(acceptVinCandidate(recognized,'VIN text recognition'))return;
-    // Retry the cropped scan region rotated 90 degrees for vertical labels.
-    const rotated=document.createElement('canvas');
-    rotated.width=canvas.height;rotated.height=canvas.width;
-    const rctx=rotated.getContext('2d',{willReadFrequently:true});
-    rctx.translate(rotated.width/2,rotated.height/2);rctx.rotate(Math.PI/2);
-    rctx.drawImage(canvas,-canvas.width/2,-canvas.height/2);
-    const rotatedResult=await worker.recognize(rotated);
-    acceptVinCandidate(rotatedResult?.data?.text||'','rotated VIN text recognition');
+    // Pass 2: unthresholded grayscale often works better on bright windshield labels.
+    const gray=document.createElement('canvas'); gray.width=base.width; gray.height=base.height;
+    const gctx=gray.getContext('2d',{willReadFrequently:true}); gctx.drawImage(base,0,0);
+    const gimg=gctx.getImageData(0,0,gray.width,gray.height);
+    for(let i=0;i<gimg.data.length;i+=4){const y=0.299*gimg.data[i]+0.587*gimg.data[i+1]+0.114*gimg.data[i+2];gimg.data[i]=gimg.data[i+1]=gimg.data[i+2]=y;}
+    gctx.putImageData(gimg,0,0);
+    recognized=await tryRecognize(gray);
+    if(acceptVinCandidate(recognized,'VIN text recognition'))return;
+    // Pass 3: rotate both ways to support vertical VIN labels.
+    for(const angle of [Math.PI/2,-Math.PI/2]){
+      const rotated=document.createElement('canvas'); rotated.width=gray.height; rotated.height=gray.width;
+      const rctx=rotated.getContext('2d',{willReadFrequently:true});
+      rctx.translate(rotated.width/2,rotated.height/2);rctx.rotate(angle);rctx.drawImage(gray,-gray.width/2,-gray.height/2);
+      recognized=await tryRecognize(rotated);
+      if(acceptVinCandidate(recognized,'rotated VIN text recognition'))return;
+    }
+    setVinScannerStatus('Still scanning… move closer until the VIN fills more of the frame, reduce glare, or use Manual VIN.');
   }catch(e){
-    setVinScannerStatus('Text recognition is having trouble. Move closer, reduce glare, or use Scan QR / Manual VIN.',true);
+    setVinScannerStatus('Text recognition is having trouble. Keep the label steady, reduce glare, or use Manual VIN.',true);
   }finally{vinScannerOcrBusy=false;}
 }
 $('open-vin-scanner')?.addEventListener('click',showVinScanner);
