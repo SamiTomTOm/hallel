@@ -162,7 +162,7 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
  #app header{padding-left:12px!important;padding-right:12px!important}
  #app main{padding:14px 12px 24px!important}
  #nav{display:none!important}
- .mobile-bottom-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;position:fixed;z-index:80;left:0;right:0;bottom:0;padding:7px 5px calc(7px + env(safe-area-inset-bottom,0px));background:rgba(255,255,255,.97);border-top:1px solid #dce8e1;box-shadow:0 -5px 22px rgba(12,54,38,.09);backdrop-filter:blur(14px)}
+ .mobile-bottom-nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;position:fixed;z-index:80;left:0;right:0;bottom:0;padding:7px 5px calc(7px + env(safe-area-inset-bottom,0px));background:rgba(255,255,255,.97);border-top:1px solid #dce8e1;box-shadow:0 -5px 22px rgba(12,54,38,.09);backdrop-filter:blur(14px)}
  .mobile-nav-btn{min-width:0;min-height:50px;border:0;background:transparent;border-radius:12px;color:#71847b;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font:600 10px/1.15 system-ui,sans-serif;padding:4px 1px;touch-action:manipulation}
  .mobile-nav-icon{font-size:22px;line-height:1.1;font-weight:700}
  .mobile-nav-btn.mobile-nav-active{color:#087f5b;background:#e8f6ee}
@@ -206,6 +206,26 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
 </style>
 
 
+<style id="hallel-mobile-tweaks">
+@media(max-width:767px){
+ /* Scan: raised round button in the middle of the bottom bar */
+ .mobile-nav-scan{color:#087f5b;font-weight:700;overflow:visible}
+ .mobile-nav-scan .mobile-nav-icon{width:46px;height:46px;margin-top:-20px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#087f5b;color:#fff;border:3px solid #fff;box-shadow:0 6px 16px rgba(8,127,91,.42)}
+ .mobile-nav-scan:active .mobile-nav-icon{transform:scale(.93)}
+ .mobile-nav-btn{font-size:10px}
+ /* Quick actions: one row, "View reports" hidden (Reports is in the bottom bar) */
+ #quick-actions-grid{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:6px!important;margin-top:14px!important}
+ #quick-actions-grid .qa-reports{display:none!important}
+ #quick-actions-grid .btn{display:flex!important;flex-direction:column;align-items:center;justify-content:flex-start;gap:5px;min-height:68px;padding:10px 2px!important;font-size:11px!important;line-height:1.15;text-align:center;white-space:normal!important}
+ #quick-actions-grid .qa-ico{font-size:20px;line-height:1}
+ /* Stats: Total / Available / Sold on one row */
+ #inventory-stats{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important}
+ #tab-inventory #inventory-stats .stat{padding:12px 6px!important;min-height:0!important;text-align:center;border-radius:14px!important}
+ #inventory-stats .stat p:first-child{font-size:11px!important;line-height:1.2;margin:0!important}
+ #inventory-stats .stat p:nth-child(2){font-size:24px!important;line-height:1.1;margin-top:6px!important}
+ #inventory-stats .stat p:last-child{display:none!important}
+}
+</style>
 <style id="hallel-vin-scanner-styles">
 #vin-scan-modal{position:fixed;inset:0;z-index:1000;background:rgba(2,10,7,.92);display:none;align-items:center;justify-content:center;padding:14px;color:#f4fff8}
 #vin-scan-modal.is-open{display:flex}
@@ -245,6 +265,7 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
 <nav id="mobile-bottom-nav" class="mobile-bottom-nav" aria-label="Mobile navigation">
 <button type="button" class="mobile-nav-btn" data-mobile-tab="inventory" aria-label="Inventory"><span class="mobile-nav-icon" aria-hidden="true">▣</span><span>Inventory</span></button>
 <button type="button" class="mobile-nav-btn" data-mobile-tab="sales" aria-label="Sales"><span class="mobile-nav-icon" aria-hidden="true">＄</span><span>Sales</span></button>
+<button type="button" class="mobile-nav-btn mobile-nav-scan" id="mobile-scan-btn" aria-label="Scan VIN"><span class="mobile-nav-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M4 12h16"/></svg></span><span>Scan</span></button>
 <button type="button" class="mobile-nav-btn" data-mobile-tab="reports" aria-label="Reports"><span class="mobile-nav-icon" aria-hidden="true">▥</span><span>Reports</span></button>
 <button type="button" class="mobile-nav-btn" id="mobile-more-toggle" aria-expanded="false" aria-controls="mobile-more-menu"><span class="mobile-nav-icon" aria-hidden="true">☰</span><span>More</span></button>
 </nav>
@@ -284,9 +305,9 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
       </div>
     </section>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3"><div class="stat"><p class="muted text-sm">Total vehicles</p><p id="stat-total" class="text-3xl font-black mt-2">—</p><p class="text-xs muted mt-2">All registered vehicles</p></div><div class="stat"><p class="muted text-sm">Available in stock</p><p id="stat-stock" class="text-3xl font-black text-emerald-300 mt-2">—</p><p class="text-xs muted mt-2">Ready for sale</p></div><div class="stat"><p class="muted text-sm">Sold vehicles</p><p id="stat-sold" class="text-3xl font-black text-amber-300 mt-2">—</p><p class="text-xs muted mt-2">Completed sales</p></div></div>
+    <div id="inventory-stats" class="grid grid-cols-1 sm:grid-cols-3 gap-3"><div class="stat"><p class="muted text-sm">Total vehicles</p><p id="stat-total" class="text-3xl font-black mt-2">—</p><p class="text-xs muted mt-2">All registered vehicles</p></div><div class="stat"><p class="muted text-sm">Available in stock</p><p id="stat-stock" class="text-3xl font-black text-emerald-300 mt-2">—</p><p class="text-xs muted mt-2">Ready for sale</p></div><div class="stat"><p class="muted text-sm">Sold vehicles</p><p id="stat-sold" class="text-3xl font-black text-amber-300 mt-2">—</p><p class="text-xs muted mt-2">Completed sales</p></div></div>
     <!-- QUICK ACTIONS: full dashboard width; buttons share one row on desktop -->
-    <div class="panel p-5 w-full"><div class="flex items-center justify-between gap-3"><div><h3 class="font-bold text-lg">Quick actions</h3><p class="muted text-xs mt-1">Common inventory tasks</p></div><span style="font-size:22px;color:#087f5b">✳</span></div><div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-5"><button type="button" class="btn btn-green w-full whitespace-nowrap" onclick="document.getElementById('add-vehicle-btn').click()">＋ Receive vehicle</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('sales')">↗ Record a sale</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('transfers')">⇄ Transfer branch</button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('reports')">▥ View reports</button><button type="button" class="btn btn-green w-full whitespace-nowrap" id="open-vin-scanner">▦ Scan VIN</button></div><p class="muted text-xs mt-4">Use the navigation on the left to access every workspace.</p></div>
+    <div class="panel p-5 w-full"><div class="flex items-center justify-between gap-3"><div><h3 class="font-bold text-lg">Quick actions</h3><p class="muted text-xs mt-1">Common inventory tasks</p></div><span style="font-size:22px;color:#087f5b">✳</span></div><div id="quick-actions-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-5"><button type="button" class="btn btn-green w-full whitespace-nowrap" onclick="document.getElementById('add-vehicle-btn').click()"><span class="qa-ico">＋</span> <span class="qa-lbl">Receive vehicle</span></button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('sales')"><span class="qa-ico">↗</span> <span class="qa-lbl">Record a sale</span></button><button type="button" class="btn btn-dark w-full whitespace-nowrap" onclick="switchTab('transfers')"><span class="qa-ico">⇄</span> <span class="qa-lbl">Transfer branch</span></button><button type="button" class="btn btn-dark w-full whitespace-nowrap qa-reports" onclick="switchTab('reports')"><span class="qa-ico">▥</span> <span class="qa-lbl">View reports</span></button><button type="button" class="btn btn-green w-full whitespace-nowrap" id="open-vin-scanner"><span class="qa-ico">▦</span> <span class="qa-lbl">Scan VIN</span></button></div><p class="muted text-xs mt-4">Use the navigation on the left to access every workspace.</p></div>
     <div class="panel p-4"><div class="grid grid-cols-1 md:grid-cols-[1fr_190px_auto] gap-3"><input id="inventory-search" placeholder="Search VIN, brand or model…"><select id="inventory-status"><option value="all">All statuses</option><option value="In Stock">In Stock</option><option value="Booked">Booked</option><option value="Sold">Sold</option></select><button id="refresh-inventory" class="btn btn-dark">Refresh</button></div><div class="table-wrap mt-4"><table class="w-full"><thead><tr><th>Vehicle</th><th>VIN / Chassis</th><th>Year / Type</th><th>Color</th><th>Branch</th><th>Accessories</th><th>Received</th><th>Status</th><th>Action</th></tr></thead><tbody id="inventory-body"><tr><td colspan="9" class="muted">Loading inventory…</td></tr></tbody></table></div></div>
   </section>
   <!-- SECTION 6: SALES & CHECKOUT PAGE -->
@@ -1100,6 +1121,7 @@ async function runVinOcr(video){
   }finally{vinScannerOcrBusy=false;}
 }
 $('open-vin-scanner')?.addEventListener('click',showVinScanner);
+$('mobile-scan-btn')?.addEventListener('click',()=>{closeMobileMore();showVinScanner();startVinScanner()});
 $('vin-scan-close')?.addEventListener('click',hideVinScanner);
 $('vin-scan-stop')?.addEventListener('click',stopVinScanner);
 $('vin-scan-start')?.addEventListener('click',startVinScanner);
