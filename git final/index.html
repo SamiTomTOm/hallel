@@ -949,6 +949,7 @@ function hideVinScanner(){
   document.body.style.overflow='';
 }
 function stopVinScanner(){
+  vinScanSession++;vinScanPhase='idle';if(vinPhaseTimer){clearTimeout(vinPhaseTimer);vinPhaseTimer=null}
   if(vinScannerControls){try{vinScannerControls.stop()}catch(e){}vinScannerControls=null}
   if(vinScannerReader){try{vinScannerReader.reset()}catch(e){}vinScannerReader=null}
   if(vinScannerOcrTimer){clearInterval(vinScannerOcrTimer);vinScannerOcrTimer=null}
@@ -983,24 +984,23 @@ function acceptVinCandidate(raw,source,strict=false){
   let best=list[0];
   const input=$('vin-scan-value');
   if(strict){
-    // Camera text is never trusted from a single frame: a misread character can even pass the check digit by chance.
+    // Camera text is never trusted from a single frame: accept the same reading twice, or a majority across frames.
     vinOcrReads.push(best.vin);if(vinOcrReads.length>7)vinOcrReads.shift();
     input.value=best.vin;
     const sameReads=vinOcrReads.filter(r=>r===best.vin).length;
-    if(!(best.checksum&&sameReads>=2)){
+    if(sameReads<2){
       const consensus=vinOcrConsensus();
       if(!consensus){setVinScannerStatus('Possible VIN: '+best.vin+' — hold steady to verify…');return 'pending'}
       best={vin:consensus,standard:true,checksum:vinChecksumOk(consensus)};
     }
   }
   if(!strict&&!best.standard){
-    // A barcode that is not a 17-character VIN is often some other number printed next to the VIN
-    // (production / order number). Keep looking for the real VIN before settling for it.
+    // A code that is not a 17-character VIN may be another number printed next to the VIN (production / order number).
+    // Remember it, show it for the user, but keep looking for the real VIN.
     const hits=(vinNonStdHits.get(best.vin)||0)+1;vinNonStdHits.set(best.vin,hits);
-    if(hits<3||Date.now()-vinScanStartedAt<6000){
-      setVinScannerStatus('Found code '+best.vin+'. Still looking for the 17-character VIN — keep the printed VIN inside the frame…');
-      return 'pending';
-    }
+    if(hits>=2)input.value=best.vin;
+    setVinScannerStatus('Found code '+best.vin+' (not a 17-character VIN). Checking the printed VIN text as well…');
+    return 'pending';
   }
   input.value=best.vin;
   stopVinScanner();
@@ -1039,48 +1039,87 @@ async function startVinScanner(){
     try{const caps=vinScannerTrack&&vinScannerTrack.getCapabilities?vinScannerTrack.getCapabilities():{};
       if(caps.focusMode&&caps.focusMode.includes('continuous'))await vinScannerTrack.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(focusError){}
     setVinScannerStatus('Camera is running. QR and text scanning are active. Keep the VIN label steady inside the frame.');
-    vinOcrReads=[];vinNonStdHits=new Map();vinOcrCycle=0;vinScanStartedAt=Date.now();
-    // QR/barcode scanning. A CDN failure must NOT stop the camera or OCR.
-    let qrReady=false;
-    try{
-      if(!window.ZXingBrowser){
-        for(const url of ['https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js','https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js']){
-          try{await loadVinScannerScript(url);if(window.ZXingBrowser)break}catch(libError){}
-        }
-      }
-      if(window.ZXingBrowser&&window.ZXingBrowser.BrowserMultiFormatReader){
-        // Try-harder mode, only the formats VIN labels use (Code 39/93/128, Data Matrix, PDF417, QR), faster retries.
-        // Numeric values are ZXing's enum ids: POSSIBLE_FORMATS=2, TRY_HARDER=3.
-        const hints=new Map();
-        hints.set(2,[2,3,4,5,10,11]);
-        hints.set(3,true);
-        vinScannerReader=new window.ZXingBrowser.BrowserMultiFormatReader(hints,{delayBetweenScanAttempts:150,delayBetweenScanSuccess:300});
-        vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result,error)=>{
-          if(result)acceptVinCandidate(result.getText(),'QR/barcode scan');
-        });
-        qrReady=true;
-      }
-    }catch(qrError){qrReady=false}
-    if(!vinScannerStream)return; // a code was already found, or the user pressed Stop
-    // OCR reads printed VIN text from video frames. Text is never saved without confirmation.
-    setVinScannerStatus(qrReady?'QR/barcode scanning is active. Loading text recognition…':'Barcode scanner could not load. Loading text recognition…');
-    getVinOcrWorker().then(worker=>{
-      if(!vinScannerStream)return; // stopped or already matched: do not overwrite the status
-      if(worker){
-        if(!vinScannerOcrTimer)vinScannerOcrTimer=setInterval(()=>runVinOcr(video),1800);
-        setVinScannerStatus((qrReady?'Scanning QR/barcodes and reading VIN text. ':'Reading VIN text. ')+'Keep the label inside the green frame and move closer until the characters are sharp.');
-      }else if(qrReady){
-        setVinScannerStatus('QR/barcode scanning is active, but text recognition could not load (check the internet connection). You can also enter the VIN manually.',true);
-      }else{
-        setVinScannerStatus('Neither scanner could load. Check the internet connection, or tap “Enter manually”.',true);
-      }
-    });
+    vinOcrReads=[];vinNonStdHits=new Map();vinOcrCycle=0;vinScanStartedAt=Date.now();vinQrUnavailable=false;
+    vinScanSession++;
+    // Two steps, one at a time (running both together overloads phones):
+    //   Step 1: QR / barcode  ->  Step 2: printed VIN text  ->  repeat until a VIN is found or the user stops.
+    getVinOcrWorker();      // download the text engine in the background (separate thread) so step 2 starts instantly
+    startVinQrPhase();      // not awaited: the camera is already running
   }catch(e){
     stopVinScanner();
     setVinScannerStatus(e.message||'Could not start the camera. Check browser permissions.',true);
   }finally{
     vinScannerStarting=false;start.disabled=false;start.textContent='Start camera';
   }
+}
+let vinScanPhase='idle', vinPhaseTimer=null, vinScanSession=0, vinQrUnavailable=false;
+const VIN_QR_PHASE_MS=6000, VIN_TEXT_PHASE_MS=12000;
+function stopVinQrLoop(){
+  if(vinScannerControls){try{vinScannerControls.stop()}catch(e){}vinScannerControls=null}
+  if(vinScannerReader){try{vinScannerReader.reset&&vinScannerReader.reset()}catch(e){}vinScannerReader=null}
+}
+function stopVinOcrLoop(){if(vinScannerOcrTimer){clearInterval(vinScannerOcrTimer);vinScannerOcrTimer=null}}
+// STEP 1: QR / barcode (lasts VIN_QR_PHASE_MS, then hands over to text reading)
+async function startVinQrPhase(){
+  const sid=vinScanSession;
+  if(!vinScannerStream)return;
+  clearTimeout(vinPhaseTimer);stopVinOcrLoop();
+  if(vinQrUnavailable)return startVinTextPhase();
+  vinScanPhase='qr';
+  setVinScannerStatus('Step 1 of 2: scanning QR / barcode. Aim at the code — if none is found, text reading starts automatically.');
+  const video=$('vin-scan-video');
+  try{
+    if(!window.ZXingBrowser){
+      for(const url of ['https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js','https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js']){
+        try{await loadVinScannerScript(url);if(window.ZXingBrowser)break}catch(libError){}
+      }
+    }
+    if(!(window.ZXingBrowser&&window.ZXingBrowser.BrowserMultiFormatReader))throw new Error('Barcode library unavailable');
+    stopVinQrLoop();
+    vinScannerReader=new window.ZXingBrowser.BrowserMultiFormatReader();
+    vinScannerControls=await vinScannerReader.decodeFromVideoElement(video,(result)=>{
+      if(result)acceptVinCandidate(result.getText(),'QR/barcode scan');
+    });
+  }catch(qrError){vinQrUnavailable=true}
+  if(sid!==vinScanSession||!vinScannerStream){stopVinQrLoop();return} // stopped or matched while starting: never leave the reader running
+  if(vinQrUnavailable)return startVinTextPhase();
+  vinPhaseTimer=setTimeout(startVinTextPhase,VIN_QR_PHASE_MS);
+}
+// STEP 2: printed VIN text (lasts VIN_TEXT_PHASE_MS, then goes back to step 1)
+async function startVinTextPhase(){
+  const sid=vinScanSession;
+  if(!vinScannerStream)return;
+  clearTimeout(vinPhaseTimer);stopVinQrLoop();stopVinOcrLoop();
+  vinScanPhase='text';
+  setVinScannerStatus('Step 2 of 2: reading the printed VIN text. Keep the VIN inside the green frame and move closer until the characters are sharp.');
+  const worker=await getVinOcrWorker();
+  if(sid!==vinScanSession||!vinScannerStream)return;
+  if(!worker){
+    if(vinQrUnavailable){setVinScannerStatus('Neither scanner could load. Check the internet connection, or tap “Enter manually”.',true);return}
+    setVinScannerStatus('Text reading could not load (check the internet connection). Going back to QR/barcode scanning…',true);
+    vinPhaseTimer=setTimeout(startVinQrPhase,2500);return;
+  }
+  vinOcrReads=[];
+  const video=$('vin-scan-video');
+  vinScannerOcrTimer=setInterval(()=>runVinOcr(video),1200);
+  runVinOcr(video);
+  vinPhaseTimer=setTimeout(endVinTextPhase,VIN_TEXT_PHASE_MS);
+}
+function endVinTextPhase(){
+  if(!vinScannerStream)return;
+  if(acceptNonStandardFallback())return;
+  startVinQrPhase(); // nothing found: try the QR/barcode again, then text again
+}
+// A QR/barcode that was read repeatedly but is not a 17-character VIN (import chassis numbers) is used only
+// when no proper VIN was found by either step.
+function acceptNonStandardFallback(){
+  let top=null;
+  for(const [code,hits] of vinNonStdHits)if(hits>=2&&(!top||hits>top.hits))top={code,hits};
+  if(!top)return false;
+  $('vin-scan-value').value=top.code;
+  stopVinScanner();
+  setVinScannerStatus('Chassis code detected: '+top.code+' (not a 17-character VIN). Verify it, then tap “Confirm & check inventory”.');
+  return true;
 }
 function loadVinScannerScript(src){
   return new Promise((resolve,reject)=>{
