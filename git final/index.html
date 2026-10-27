@@ -644,7 +644,7 @@ $('mobile-more-close')?.addEventListener('click',closeMobileMore);$('mobile-more
 
 // 11F. INVENTORY: status display, loading, searching, and refresh
 function statusBadge(status){if(status==='Sold')return '<span class="badge bg-amber-900 text-amber-200">Sold</span>';if(status==='Booked')return '<span class="badge" style="background:#fff0d8;color:#9a5b00">Booked</span>';return '<span class="badge bg-emerald-950 text-emerald-300">In Stock</span>'}
-async function loadInventory(){try{const params=new URLSearchParams();const s=$('inventory-status').value;const q=$('inventory-search').value.trim();if(s!=='all')params.set('status_filter',s);if(q)params.set('search',q);inventoryCache=await api('/inventory?'+params.toString());$('inventory-body').innerHTML=inventoryCache.length?inventoryCache.map(v=>{const vin=encodeURIComponent(v.chassis_number);let actions='';if(v.status==='In Stock'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button><button class="btn btn-dark text-xs" onclick="openBooking('${vin}')">BOOK</button>`:''}${canManageStock()?`<button class="text-emerald-700 font-bold" onclick="editBranch('${vin}')">Edit</button>`:''}</div>`;}else if(v.status==='Booked'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button>`:''}<button class="btn btn-dark text-xs" onclick="switchTab('bookings')">View booking</button></div>`;}else{actions='—';}return `<tr><td><div class="font-bold">${esc(v.brand)} ${esc(v.model)}</div><div class="text-xs muted">${esc(v.body||'—')}</div></td><td class="font-mono text-xs"><button type="button" class="vehicle-action-link" onclick="openVehicleInfo('${vin}')" title="View saved vehicle information">${esc(v.chassis_number)}</button></td><td>${esc(v.year)}<div class="text-xs muted">${esc(v.vehicle_type)}</div></td><td>${esc(v.color||'—')}</td><td>${esc(v.store)}</td><td class="text-xs">${v.has_charger?'Charger · ':''}${v.has_accessories?'Accessories · ':''}${v.has_key?'Key · ':''}${v.has_card?'Card':''}${!v.has_charger&&!v.has_accessories&&!v.has_key&&!v.has_card?'—':''}</td><td>${v.received_date?esc(v.received_date.slice(0,10)):'—'}</td><td>${statusBadge(v.status)}</td><td>${actions}</td></tr>`;}).join(''):'<tr><td colspan="9" class="muted">No vehicles match your search.</td></tr>';$('stat-total').textContent=inventoryCache.length;const all=await api('/inventory');$('stat-total').textContent=all.length;$('stat-stock').textContent=all.filter(v=>v.status==='In Stock').length;$('stat-sold').textContent=all.filter(v=>v.status==='Sold').length;// Showroom stock is rendered in the Reports menu.
+async function loadInventory(){try{const params=new URLSearchParams();const s=$('inventory-status').value;const q=$('inventory-search').value.trim();if(s!=='all')params.set('status_filter',s);if(q)params.set('search',q);inventoryCache=await api('/inventory?'+params.toString());$('inventory-body').innerHTML=inventoryCache.length?inventoryCache.map(v=>{const vin=encodeURIComponent(v.chassis_number);let actions='';if(v.status==='In Stock'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button><button class="btn btn-dark text-xs" onclick="openBooking('${vin}')">BOOK</button>`:''}<button class="btn btn-dark text-xs" onclick="quoteVehicle('${vin}')">QUOTE</button>${canManageStock()?`<button class="text-emerald-700 font-bold" onclick="editBranch('${vin}')">Edit</button>`:''}</div>`;}else if(v.status==='Booked'){actions=`<div class="flex flex-wrap gap-2">${canSell()?`<button class="btn btn-green text-xs" onclick="sellVehicle('${vin}')">SOLD</button>`:''}<button class="btn btn-dark text-xs" onclick="switchTab('bookings')">View booking</button><button class="btn btn-dark text-xs" onclick="quoteVehicle('${vin}')">QUOTE</button></div>`;}else{actions='—';}return `<tr><td><div class="font-bold">${esc(v.brand)} ${esc(v.model)}</div><div class="text-xs muted">${esc(v.body||'—')}</div></td><td class="font-mono text-xs"><button type="button" class="vehicle-action-link" onclick="openVehicleInfo('${vin}')" title="View saved vehicle information">${esc(v.chassis_number)}</button></td><td>${esc(v.year)}<div class="text-xs muted">${esc(v.vehicle_type)}</div></td><td>${esc(v.color||'—')}</td><td>${esc(v.store)}</td><td class="text-xs">${v.has_charger?'Charger · ':''}${v.has_accessories?'Accessories · ':''}${v.has_key?'Key · ':''}${v.has_card?'Card':''}${!v.has_charger&&!v.has_accessories&&!v.has_key&&!v.has_card?'—':''}</td><td>${v.received_date?esc(v.received_date.slice(0,10)):'—'}</td><td>${statusBadge(v.status)}</td><td>${actions}</td></tr>`;}).join(''):'<tr><td colspan="9" class="muted">No vehicles match your search.</td></tr>';$('stat-total').textContent=inventoryCache.length;const all=await api('/inventory');$('stat-total').textContent=all.length;$('stat-stock').textContent=all.filter(v=>v.status==='In Stock').length;$('stat-sold').textContent=all.filter(v=>v.status==='Sold').length;// Showroom stock is rendered in the Reports menu.
 }catch(e){showAlert(e.message,true)}}
 // 11G. INVENTORY CONTROLS AND RECEIVE-VEHICLE FORM
 let searchTimer; $('inventory-search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(loadInventory,250)});$('inventory-status').addEventListener('change',loadInventory);$('refresh-inventory').addEventListener('click',loadInventory);
@@ -787,10 +787,10 @@ $('booking-form').addEventListener('submit',async e=>{
 async function loadBookings(){
   const body=$('bookings-body');if(!body)return;
   try{
-    const rows=await api('/bookings?limit=500');
+    const rows=await api('/bookings?limit=500');window.bookingsCache=rows;
     if(!rows.length){body.innerHTML='<tr><td colspan="8" class="muted">No active bookings.</td></tr>';return}
     const vehicles=await api('/inventory');const byVin=new Map(vehicles.map(v=>[v.chassis_number,v]));
-    body.innerHTML=rows.map(b=>{const v=byVin.get(b.chassis_number);return `<tr><td><div class="font-bold">${esc(v?`${v.brand} ${v.model}`:'Vehicle')}</div><div class="text-xs muted">${esc(b.chassis_number)}</div></td><td>${esc(b.customer_name)}</td><td>${esc(b.customer_phone||'—')}</td><td>${b.booking_amount?money(b.booking_amount):'—'}</td><td>${esc(b.booked_by)}</td><td>${esc((b.booking_date||'').slice(0,10)||'—')}</td><td>${esc(b.notes||'—')}</td><td><button class="btn btn-dark text-xs" onclick="cancelBooking(${Number(b.id)})">UNBOOK</button></td></tr>`}).join('');
+    body.innerHTML=rows.map(b=>{const v=byVin.get(b.chassis_number);return `<tr><td><div class="font-bold">${esc(v?`${v.brand} ${v.model}`:'Vehicle')}</div><div class="text-xs muted">${esc(b.chassis_number)}</div></td><td>${esc(b.customer_name)}</td><td>${esc(b.customer_phone||'—')}</td><td>${b.booking_amount?money(b.booking_amount):'—'}</td><td>${esc(b.booked_by)}</td><td>${esc((b.booking_date||'').slice(0,10)||'—')}</td><td>${esc(b.notes||'—')}</td><td><button class="btn btn-dark text-xs" onclick="cancelBooking(${Number(b.id)})">UNBOOK</button> <button class="btn btn-green text-xs" onclick="quoteFromBooking(${Number(b.id)})">QUOTATION</button></td></tr>`}).join('');
   }catch(e){body.innerHTML=`<tr><td colspan="8" class="text-rose-600">${esc(e.message)}</td></tr>`;}
 }
 window.cancelBooking=async id=>{
@@ -1558,6 +1558,20 @@ async function downloadPdf(){
   finally{if(host)host.remove();btn.textContent='Download PDF';btn.disabled=!q('proofread').checked}
 }
 window.openQuotationTab=()=>{init();fillVinList()};
+// Start a fresh quotation for a vehicle (and optionally a customer) from the Inventory or Booked Vehicles screens.
+window.startQuotation=async o=>{
+  init();fillVinList();resetAll(true);
+  q('vin').value=String(o.vin||'').toUpperCase();
+  if(o.custName)q('cust-name').value=o.custName;
+  if(o.custPhone)q('cust-phone').value=o.custPhone;
+  await lookup();
+};
+window.quoteVehicle=encodedVin=>{switchTab('quotation');window.startQuotation({vin:decodeURIComponent(encodedVin)})};
+window.quoteFromBooking=id=>{
+  const b=(window.bookingsCache||[]).find(x=>Number(x.id)===Number(id));
+  if(!b){notify('Booking not found. Refresh the list and try again.',true);return}
+  switchTab('quotation');window.startQuotation({vin:b.chassis_number,custName:b.customer_name,custPhone:b.customer_phone});
+};
 })();
 
 // 11M. INITIALIZATION: restore the session or show the login screen
