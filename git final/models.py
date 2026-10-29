@@ -120,3 +120,25 @@ class Booking(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     vehicle = relationship("Vehicle")
+
+
+class WaitlistRequest(Base):
+    """A customer who is waiting for a vehicle that is not in stock yet."""
+
+    __tablename__ = "waitlist"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_name = Column(String(150), nullable=False)
+    customer_phone = Column(String(80), nullable=False)
+    brand = Column(String(80), nullable=False, default="")
+    model = Column(String(120), nullable=False, default="")
+    year_from = Column(Integer, nullable=True)
+    year_to = Column(Integer, nullable=True)
+    vehicle_type = Column(String(30), nullable=False, default="")
+    color = Column(String(60), nullable=False, default="")
+    notes = Column(Text, nullable=False, default="")
+    status = Column(String(20), nullable=False, default="Waiting", index=True)  # Waiting / Fulfilled / Cancelled
+    created_by = Column(String(80), nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_notified_at = Column(DateTime, nullable=True)
+    notify_count = Column(Integer, nullable=False, default=0)
