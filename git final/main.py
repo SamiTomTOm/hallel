@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
 import models
+import waitlist as wl
 
 load_dotenv()
 Base.metadata.create_all(bind=engine)
@@ -202,6 +203,51 @@ class VehicleUpdate(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=2000)
 
 
+class WaitlistCreate(BaseModel):
+    customer_name: str = Field(min_length=1, max_length=150)
+    customer_phone: str = Field(min_length=3, max_length=80)
+    brand: str = Field(default="", max_length=80)
+    model: str = Field(default="", max_length=120)
+    year_from: Optional[int] = Field(default=None, ge=1980, le=2100)
+    year_to: Optional[int] = Field(default=None, ge=1980, le=2100)
+    vehicle_type: Literal["", "Fuel", "Hybrid", "Electric"] = ""
+    color: str = Field(default="", max_length=60)
+    notes: str = Field(default="", max_length=2000)
+
+
+class WaitlistStatusUpdate(BaseModel):
+    status: Literal["Waiting", "Fulfilled", "Cancelled"]
+
+
+def waitlist_dict(w: models.WaitlistRequest):
+    return {"id": w.id, "customer_name": w.customer_name, "customer_phone": w.customer_phone, "brand": w.brand, "model": w.model, "year_from": w.year_from, "year_to": w.year_to, "vehicle_type": w.vehicle_type, "color": w.color, "notes": w.notes, "status": w.status, "created_by": w.created_by, "created_at": w.created_at.isoformat() if w.created_at else None, "last_notified_at": w.last_notified_at.isoformat() if w.last_notified_at else None, "notify_count": w.notify_count or 0}
+
+
+def notify_restock(db: Session, vehicle: models.Vehicle):
+    """A vehicle was just received. If customers are waiting for it, queue ONE text message.
+    Returns (number of waiting customers it matches, whether an alert was queued).
+    Never raises: a messaging problem must not stop the vehicle from being saved."""
+    try:
+        waiting = db.query(models.WaitlistRequest).filter(models.WaitlistRequest.status == "Waiting").all()
+        matches = [w for w in waiting if wl.request_matches(w, vehicle)]
+        if not matches:
+            return 0, False
+        if not wl.alerts_configured():
+            return len(matches), False
+        info = wl.vehicle_info(vehicle)
+        customers = [wl.customer_info(w) for w in matches]
+        now = datetime.utcnow()
+        for w in matches:
+            w.last_notified_at = now
+            w.notify_count = (w.notify_count or 0) + 1
+        db.commit()
+        wl.queue_restock(info, customers)
+        return len(matches), True
+    except Exception:
+        db.rollback()
+        return 0, False
+
+
 def vehicle_dict(v: models.Vehicle):
     return {"id": v.id, "chassis_number": v.chassis_number, "vin": v.chassis_number, "brand": v.brand, "model": v.model, "year": v.year, "vehicle_type": v.vehicle_type, "type": v.vehicle_type, "color": v.color, "body": v.body, "store": v.store, "has_charger": v.has_charger, "has_accessories": v.has_accessories, "customer_name": v.customer_name, "has_key": v.has_key, "has_card": v.has_card, "received_date": v.received_date.isoformat() if v.received_date else None, "received_by": v.received_by, "status": v.status, "notes": v.notes, "created_at": v.created_at.isoformat() if v.created_at else None}
 
@@ -329,7 +375,8 @@ def add_inventory(data: VehicleCreate, db: Session = Depends(get_db), user: mode
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="A vehicle with this VIN/chassis number already exists.")
-    return vehicle_dict(v)
+    matched, alert_queued = notify_restock(db, v)
+    return {**vehicle_dict(v), "waitlist_matches": matched, "alert_sent": alert_queued}
 
 @app.patch("/inventory/{chassis_number}")
 def update_inventory(chassis_number: str, data: VehicleUpdate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "stock_manager", "management"))):
@@ -534,6 +581,57 @@ def list_transfers(limit: int = 200, db: Session = Depends(get_db), user: models
     limit = max(1, min(limit, 1000))
     rows = db.query(models.Transfer).order_by(models.Transfer.transferred_at.desc()).limit(limit).all()
     return [{"id": t.id, "chassis_number": t.chassis_number, "from_store": t.from_store, "to_store": t.to_store, "transferred_by": t.transferred_by, "transferred_at": t.transferred_at.isoformat(), "notes": t.notes} for t in rows]
+
+@app.post("/waitlist", status_code=201)
+def add_waitlist(data: WaitlistCreate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    if not data.brand.strip() and not data.model.strip():
+        raise HTTPException(status_code=422, detail="Enter the brand or the model the customer is waiting for.")
+    if data.year_from and data.year_to and data.year_from > data.year_to:
+        raise HTTPException(status_code=422, detail="'Year from' cannot be later than 'Year to'.")
+    record = models.WaitlistRequest(customer_name=data.customer_name.strip(), customer_phone=data.customer_phone.strip(), brand=data.brand.strip(), model=data.model.strip(), year_from=data.year_from, year_to=data.year_to, vehicle_type=data.vehicle_type, color=data.color.strip(), notes=data.notes.strip(), status="Waiting", created_by=user.username)
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    # Tell the person registering the customer if a matching vehicle is already in stock.
+    in_stock = db.query(models.Vehicle).filter(models.Vehicle.status == "In Stock").all()
+    already = [vehicle_dict(v) for v in in_stock if wl.request_matches(record, v)]
+    return {**waitlist_dict(record), "in_stock_now": already[:10]}
+
+@app.get("/waitlist")
+def list_waitlist(status_filter: Optional[str] = None, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    query = db.query(models.WaitlistRequest)
+    if status_filter and status_filter.lower() != "all":
+        query = query.filter(func.lower(models.WaitlistRequest.status) == status_filter.lower())
+    return [waitlist_dict(w) for w in query.order_by(models.WaitlistRequest.created_at.desc()).limit(1000).all()]
+
+@app.patch("/waitlist/{request_id}/status")
+def set_waitlist_status(request_id: int, data: WaitlistStatusUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    record = db.query(models.WaitlistRequest).filter(models.WaitlistRequest.id == request_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Request not found.")
+    record.status = data.status
+    db.commit()
+    db.refresh(record)
+    return waitlist_dict(record)
+
+@app.get("/notifications/status")
+def notifications_status(user: models.User = Depends(require_roles("admin", "management"))):
+    return {"sms_configured": wl.sms_configured(), "sms_provider": wl.sms_provider(), "telegram_configured": wl.telegram_configured(), "alerts_configured": wl.alerts_configured()}
+
+@app.post("/notifications/test")
+def notifications_test(user: models.User = Depends(require_roles("admin", "management"))):
+    if not wl.alerts_configured():
+        raise HTTPException(status_code=400, detail="Text alerts are not set up yet. Add the SMS settings (SMS_ALERT_NUMBERS and your SMS provider details) where the backend is hosted, then restart it.")
+    sent, errors = 0, []
+    if wl.sms_configured():
+        r = wl.send_sms("Hallel Inventory test: restock alerts will arrive on this number.")
+        sent += r["sent"]; errors += r["errors"]
+    if wl.telegram_configured():
+        r = wl.send_telegram("Test message from Hallel Inventory. Restock alerts will arrive in this chat.")
+        sent += r["sent"]; errors += r["errors"]
+    if not sent:
+        raise HTTPException(status_code=502, detail="The test message was not accepted: " + "; ".join(errors))
+    return {"message": f"Test message sent to {sent} recipient(s).", "errors": errors}
 
 @app.get("/reports/summary")
 def reports_summary(db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management"))):
