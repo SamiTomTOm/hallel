@@ -326,6 +326,17 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
 .pfs-stampbox{display:flex;justify-content:center;align-items:center;height:140px}
 .pfs-stamp{width:130px;height:auto;transform:rotate(-6deg)}
 .pfs-thanks{text-align:center;font-size:11.5px;color:#5d6b63;margin-top:22px}
+/* ===== Waiting list ===== */
+#nav .nav-btn[data-tab="waitlist"]:before{content:'☎'}
+#tab-waitlist .wl-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+#tab-waitlist .wl-grid .wl-wide{grid-column:1/-1}
+@media(max-width:640px){#tab-waitlist .wl-grid{grid-template-columns:1fr}}
+#tab-waitlist .wl-status{font-size:13px;padding:10px 12px;border-radius:10px;background:#e4f4eb;color:#0a5c3e}
+#tab-waitlist .wl-status.wl-warn{background:#fff3d6;color:#7a4b00}
+#tab-waitlist .wl-status.wl-bad{background:#fde8e8;color:#8a1f1f}
+#tab-waitlist .wl-pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700}
+#tab-waitlist .wl-pill.w{background:#fff0d8;color:#9a5b00}#tab-waitlist .wl-pill.f{background:#e4f4eb;color:#0a5c3e}#tab-waitlist .wl-pill.c{background:#eceff0;color:#5b6a63}
+#tab-waitlist td a{color:#087f5b;font-weight:600}
 </style>
 </head>
 <body>
@@ -361,10 +372,11 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
 <button type="button" class="mobile-more-item" data-mobile-tab="bookings"><span aria-hidden="true">▣</span> Booked Vehicles <span class="mobile-more-arrow">›</span></button>
 <button type="button" class="mobile-more-item" data-mobile-tab="transfers"><span aria-hidden="true">⇄</span> Branch Transfers <span class="mobile-more-arrow">›</span></button>
 <button type="button" class="mobile-more-item" data-mobile-tab="quotation"><span aria-hidden="true">✎</span> Quotation <span class="mobile-more-arrow">›</span></button>
+<button type="button" class="mobile-more-item" data-mobile-tab="waitlist"><span aria-hidden="true">☎</span> Waiting List <span class="mobile-more-arrow">›</span></button>
 <button type="button" class="mobile-more-item hidden" id="mobile-more-users" data-mobile-tab="users"><span aria-hidden="true">♙</span> Staff Accounts <span class="mobile-more-arrow">›</span></button>
 </section>
 <main class="max-w-[1600px] mx-auto p-4 md:p-7">
-  <div class="flex flex-wrap gap-2 mb-6" id="nav"><button class="nav-btn nav-active btn btn-dark" data-tab="inventory">Inventory</button><button class="nav-btn btn btn-dark" data-tab="sales">Sales & Checkout</button><button class="nav-btn btn btn-dark" data-tab="bookings">Booked Vehicles</button><button class="nav-btn btn btn-dark" data-tab="transfers">Branch Transfers</button><button class="nav-btn btn btn-dark" data-tab="reports">Reports</button><button class="nav-btn btn btn-dark" data-tab="quotation">Quotation</button><button id="users-nav" class="nav-btn btn btn-dark hidden" data-tab="users">Staff Accounts</button></div>
+  <div class="flex flex-wrap gap-2 mb-6" id="nav"><button class="nav-btn nav-active btn btn-dark" data-tab="inventory">Inventory</button><button class="nav-btn btn btn-dark" data-tab="sales">Sales & Checkout</button><button class="nav-btn btn btn-dark" data-tab="bookings">Booked Vehicles</button><button class="nav-btn btn btn-dark" data-tab="transfers">Branch Transfers</button><button class="nav-btn btn btn-dark" data-tab="reports">Reports</button><button class="nav-btn btn btn-dark" data-tab="quotation">Quotation</button><button class="nav-btn btn btn-dark" data-tab="waitlist">Waiting List</button><button id="users-nav" class="nav-btn btn btn-dark hidden" data-tab="users">Staff Accounts</button></div>
   <div id="alert" class="hidden notice mb-5"></div>
   <!-- SECTION 5: INVENTORY PAGE -->
   <section id="tab-inventory" class="tab-content space-y-5">
@@ -468,6 +480,34 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
         <label class="q-proof"><input type="checkbox" id="q-proofread"><span>I have read the whole proforma and the vehicle, customer, price and terms are correct.</span></label>
         <div class="q-actions"><button type="button" id="q-back" class="btn btn-dark">← Back to edit</button><button type="button" id="q-download" class="btn btn-green" disabled>Download PDF</button></div>
       </div>
+    </div>
+  </section>
+
+  <!-- WAITING LIST: customers waiting for a vehicle; a text message is sent when matching stock arrives -->
+  <section id="tab-waitlist" class="tab-content hidden space-y-5">
+    <div class="flex flex-wrap items-end justify-between gap-4"><div><p class="text-xs uppercase tracking-[.2em] text-emerald-700 font-bold">Customer requests</p><h2 class="text-2xl md:text-3xl font-black mt-1">Waiting list</h2><p class="muted text-sm mt-1">Register the customer and the car they want. When a matching vehicle is received, you get a text message with who to call.</p></div></div>
+    <div id="wl-alert-status" class="wl-status hidden"></div>
+    <form id="wl-form" class="panel p-5 md:p-6 space-y-4" novalidate>
+      <h3 class="font-black text-lg">Add a customer</h3>
+      <div class="wl-grid">
+        <div><label class="field-label" for="wl-name">Customer name</label><input id="wl-name" type="text" autocomplete="off" placeholder="e.g. Abebe Kebede"></div>
+        <div><label class="field-label" for="wl-phone">Phone number</label><input id="wl-phone" type="tel" autocomplete="off" placeholder="e.g. 0911 22 33 44"></div>
+        <div><label class="field-label" for="wl-brand">Brand</label><input id="wl-brand" type="text" autocomplete="off" placeholder="e.g. BYD"></div>
+        <div><label class="field-label" for="wl-model">Model</label><input id="wl-model" type="text" autocomplete="off" placeholder="e.g. Seagull"></div>
+        <div><label class="field-label" for="wl-year-from">Year from (optional)</label><input id="wl-year-from" type="number" min="1980" max="2100" inputmode="numeric" placeholder="e.g. 2023"></div>
+        <div><label class="field-label" for="wl-year-to">Year to (optional)</label><input id="wl-year-to" type="number" min="1980" max="2100" inputmode="numeric" placeholder="e.g. 2025"></div>
+        <div><label class="field-label" for="wl-type">Type (optional)</label><select id="wl-type"><option value="">Any type</option><option value="Electric">Electric</option><option value="Hybrid">Hybrid</option><option value="Fuel">Fuel</option></select></div>
+        <div><label class="field-label" for="wl-color">Colour (optional)</label><input id="wl-color" type="text" autocomplete="off" placeholder="e.g. White"></div>
+        <div class="wl-wide"><label class="field-label" for="wl-notes">Notes (optional)</label><input id="wl-notes" type="text" autocomplete="off" placeholder="e.g. budget, call after 5pm"></div>
+      </div>
+      <p class="muted text-xs">Enter at least a brand or a model. Fields you leave empty match anything, so "BYD" alone alerts you for every BYD that arrives.</p>
+      <div id="wl-msg" class="wl-status wl-bad hidden" role="alert"></div>
+      <div id="wl-instock" class="wl-status wl-warn hidden"></div>
+      <div class="flex justify-end"><button type="submit" id="wl-save" class="btn btn-green">Add to waiting list</button></div>
+    </form>
+    <div class="panel p-4 space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-black text-lg">Customers waiting</h3><div class="flex gap-2"><select id="wl-filter" style="width:auto"><option value="Waiting">Waiting</option><option value="all">All</option><option value="Fulfilled">Fulfilled</option><option value="Cancelled">Cancelled</option></select><button type="button" id="wl-refresh" class="btn btn-dark">Refresh</button></div></div>
+      <div class="table-wrap"><table class="w-full"><thead><tr><th>Customer</th><th>Phone</th><th>Wants</th><th>Added</th><th>Last alert</th><th>Status</th><th>Action</th></tr></thead><tbody id="wl-body"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody></table></div>
     </div>
   </section>
 
@@ -633,7 +673,7 @@ async function startApp(){try{const me=await api('/auth/me');currentUser=me;loca
 function canManageStock(){return ['admin','stock_manager','management'].includes(currentUser.role)}
 function canSell(){return ['admin','salesperson','management'].includes(currentUser.role)}
 function canSeeReports(){return ['admin','management'].includes(currentUser.role)}
-function switchTab(tab){if(tab==='users'&&currentUser.role!=='admin'){notify('Only administrators can manage staff accounts.',true);return}if(tab==='reports'&&!canSeeReports()){notify('You do not have permission to view reports.',true);return}if(tab==='sales'&&!canSell()){notify('Your role cannot record sales.',true);return}if(tab==='transfers'&&!canManageStock()){notify('Your role cannot transfer vehicles.',true);return}document.querySelectorAll('.tab-content').forEach(el=>el.classList.add('hidden'));$('tab-'+tab).classList.remove('hidden');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('nav-active',b.dataset.tab===tab));if(tab==='inventory')loadInventory();if(tab==='sales')loadRecentSales();if(tab==='bookings')loadBookings();if(tab==='transfers')loadRecentTransfers();if(tab==='reports')loadReports();if(tab==='users')loadUsers();if(tab==='quotation'&&window.openQuotationTab)window.openQuotationTab();if(typeof updateMobileNavigation==='function')updateMobileNavigation(tab)}
+function switchTab(tab){if(tab==='users'&&currentUser.role!=='admin'){notify('Only administrators can manage staff accounts.',true);return}if(tab==='reports'&&!canSeeReports()){notify('You do not have permission to view reports.',true);return}if(tab==='sales'&&!canSell()){notify('Your role cannot record sales.',true);return}if(tab==='transfers'&&!canManageStock()){notify('Your role cannot transfer vehicles.',true);return}document.querySelectorAll('.tab-content').forEach(el=>el.classList.add('hidden'));$('tab-'+tab).classList.remove('hidden');document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('nav-active',b.dataset.tab===tab));if(tab==='inventory')loadInventory();if(tab==='sales')loadRecentSales();if(tab==='bookings')loadBookings();if(tab==='transfers')loadRecentTransfers();if(tab==='reports')loadReports();if(tab==='users')loadUsers();if(tab==='quotation'&&window.openQuotationTab)window.openQuotationTab();if(tab==='waitlist'&&window.openWaitlistTab)window.openWaitlistTab();if(typeof updateMobileNavigation==='function')updateMobileNavigation(tab)}
 document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 function closeMobileMore(){const menu=$('mobile-more-menu'),backdrop=$('mobile-more-backdrop'),toggle=$('mobile-more-toggle');if(menu)menu.classList.add('hidden');if(backdrop)backdrop.classList.add('hidden');if(toggle)toggle.setAttribute('aria-expanded','false');document.body.classList.remove('mobile-more-open')}
 function openMobileMore(){const menu=$('mobile-more-menu'),backdrop=$('mobile-more-backdrop'),toggle=$('mobile-more-toggle');if(menu)menu.classList.remove('hidden');if(backdrop)backdrop.classList.remove('hidden');if(toggle)toggle.setAttribute('aria-expanded','true');document.body.classList.add('mobile-more-open')}
@@ -649,7 +689,7 @@ async function loadInventory(){try{const params=new URLSearchParams();const s=$(
 // 11G. INVENTORY CONTROLS AND RECEIVE-VEHICLE FORM
 let searchTimer; $('inventory-search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(loadInventory,250)});$('inventory-status').addEventListener('change',loadInventory);$('refresh-inventory').addEventListener('click',loadInventory);
 $('add-vehicle-btn').addEventListener('click',()=>{if(!canManageStock()){notify('Only stock managers and admins can receive vehicles.',true);return}$('vehicle-modal').classList.remove('hidden');$('vehicle-modal').classList.add('flex')});function closeModal(){$('vehicle-modal').classList.add('hidden');$('vehicle-modal').classList.remove('flex')}$('close-modal').addEventListener('click',closeModal);$('cancel-modal').addEventListener('click',closeModal);
-$('vehicle-form').addEventListener('submit',async e=>{e.preventDefault();const receivedDate=$('vehicle-date').value;const data={chassis_number:$('vehicle-vin').value.trim().toUpperCase(),brand:$('vehicle-brand').value.trim(),model:$('vehicle-model').value.trim(),year:Number($('vehicle-year').value),vehicle_type:$('vehicle-type').value,color:$('vehicle-color').value.trim(),body:$('vehicle-body').value.trim(),store:$('vehicle-store').value,has_charger:$('vehicle-charger').checked,has_accessories:$('vehicle-accessories').checked,customer_name:$('vehicle-customer').value.trim(),has_key:$('vehicle-key').checked,has_card:$('vehicle-card').checked,received_date:receivedDate?new Date(receivedDate+'T12:00:00').toISOString():null,received_by:$('vehicle-received-by').value.trim(),notes:$('vehicle-notes').value.trim()};try{await api('/inventory',{method:'POST',body:JSON.stringify(data)});closeModal();$('vehicle-form').reset();$('vehicle-year').value=new Date().getFullYear();notify('Vehicle received and added to inventory.');await loadInventory()}catch(err){notify(err.message,true)}});
+$('vehicle-form').addEventListener('submit',async e=>{e.preventDefault();const receivedDate=$('vehicle-date').value;const data={chassis_number:$('vehicle-vin').value.trim().toUpperCase(),brand:$('vehicle-brand').value.trim(),model:$('vehicle-model').value.trim(),year:Number($('vehicle-year').value),vehicle_type:$('vehicle-type').value,color:$('vehicle-color').value.trim(),body:$('vehicle-body').value.trim(),store:$('vehicle-store').value,has_charger:$('vehicle-charger').checked,has_accessories:$('vehicle-accessories').checked,customer_name:$('vehicle-customer').value.trim(),has_key:$('vehicle-key').checked,has_card:$('vehicle-card').checked,received_date:receivedDate?new Date(receivedDate+'T12:00:00').toISOString():null,received_by:$('vehicle-received-by').value.trim(),notes:$('vehicle-notes').value.trim()};try{const created=await api('/inventory',{method:'POST',body:JSON.stringify(data)});closeModal();$('vehicle-form').reset();$('vehicle-year').value=new Date().getFullYear();const n=created&&created.waitlist_matches||0;notify(n?('Vehicle received. '+n+' waiting customer'+(n>1?'s':'')+' want this car'+(created.alert_sent?'; an alert was sent to you.':'. No alert channel is set up yet, see the Waiting List.')):'Vehicle received and added to inventory.');await loadInventory()}catch(err){notify(err.message,true)}});
 // 11H. EDIT BASIC VEHICLE DETAILS
 function showHalModal(id){const el=$(id);el.classList.add('is-open');document.body.style.overflow='hidden'}
 function hideHalModal(id){const el=$(id);el.classList.remove('is-open');if(!document.querySelector('.hal-modal.is-open'))document.body.style.overflow=''}
@@ -1572,6 +1612,87 @@ window.quoteFromBooking=id=>{
   if(!b){notify('Booking not found. Refresh the list and try again.',true);return}
   switchTab('quotation');window.startQuotation({vin:b.chassis_number,custName:b.customer_name,custPhone:b.customer_phone});
 };
+})();
+
+// 13. WAITING LIST: customers waiting for a vehicle. The backend sends a text message when matching stock is received.
+(()=>{
+const w=id=>$('wl-'+id);
+let inited=false;
+function waLink(phone){let d=String(phone||'').replace(/\D/g,'');if(d.length===10&&d[0]==='0')d='251'+d.slice(1);else if(d.length===9)d='251'+d;return 'https://wa.me/'+d}
+const fmt=iso=>iso?String(iso).slice(0,10):'—';
+function wants(r){
+  const name=[r.brand,r.model].filter(Boolean).join(' ');
+  const x=[];
+  if(r.year_from&&r.year_to)x.push(r.year_from===r.year_to?r.year_from:r.year_from+'-'+r.year_to);else if(r.year_from)x.push(r.year_from+' or newer');else if(r.year_to)x.push('up to '+r.year_to);
+  if(r.vehicle_type)x.push(r.vehicle_type);if(r.color)x.push(r.color);
+  return '<div class="font-bold">'+esc(name||'—')+'</div>'+(x.length?'<div class="text-xs muted">'+esc(x.join(' · '))+'</div>':'')+(r.notes?'<div class="text-xs muted">'+esc(r.notes)+'</div>':'');
+}
+function pill(s){const c=s==='Waiting'?'w':s==='Fulfilled'?'f':'c';return '<span class="wl-pill '+c+'">'+esc(s)+'</span>'}
+function actions(r){
+  if(r.status==='Waiting')return '<div class="flex flex-wrap gap-2"><button class="btn btn-green text-xs" onclick="wlSetStatus('+Number(r.id)+',\'Fulfilled\')">Fulfilled</button><button class="btn btn-dark text-xs" onclick="wlSetStatus('+Number(r.id)+',\'Cancelled\')">Cancel</button></div>';
+  return '<button class="btn btn-dark text-xs" onclick="wlSetStatus('+Number(r.id)+',\'Waiting\')">Reopen</button>';
+}
+async function load(){
+  const body=w('body');
+  try{
+    const rows=await api('/waitlist?status_filter='+encodeURIComponent(w('filter').value));
+    body.innerHTML=rows.length?rows.map(r=>'<tr><td class="font-bold">'+esc(r.customer_name)+'</td><td><a href="tel:'+esc(String(r.customer_phone).replace(/[^\d+]/g,''))+'">'+esc(r.customer_phone)+'</a><div class="text-xs"><a href="'+esc(waLink(r.customer_phone))+'" target="_blank" rel="noopener">WhatsApp</a></div></td><td>'+wants(r)+'</td><td>'+esc(fmt(r.created_at))+'<div class="text-xs muted">'+esc(r.created_by||'')+'</div></td><td>'+(r.notify_count?esc(fmt(r.last_notified_at))+'<div class="text-xs muted">'+r.notify_count+' alert'+(r.notify_count>1?'s':'')+'</div>':'—')+'</td><td>'+pill(r.status)+'</td><td>'+actions(r)+'</td></tr>').join(''):'<tr><td colspan="7" class="muted">No customers in this list.</td></tr>';
+  }catch(e){body.innerHTML='<tr><td colspan="7" class="text-rose-600">'+esc(e.message)+'</td></tr>'}
+}
+async function checkAlerts(){
+  const box=w('alert-status');
+  if(!currentUser||!['admin','management'].includes(currentUser.role)){box.classList.add('hidden');return}
+  try{
+    const s=await api('/notifications/status');
+    box.classList.remove('hidden','wl-warn');
+    if(s.alerts_configured){
+      box.innerHTML='Text alerts are on. <button type="button" id="wl-test" class="btn btn-dark text-xs" style="margin-left:8px">Send a test message</button>';
+      w('test').addEventListener('click',sendTest);
+    }else{
+      box.classList.add('wl-warn');
+      box.textContent='Text alerts are not set up yet, so no message will be sent when stock arrives. The backend needs the SMS settings (SMS_ALERT_NUMBERS and your SMS provider details).';
+    }
+  }catch(e){box.classList.add('hidden')}
+}
+async function sendTest(){
+  const b=w('test');b.disabled=true;
+  try{const r=await api('/notifications/test',{method:'POST',body:'{}'});notify(r.message||'Test message sent.')}
+  catch(e){notify(e.message,true)}
+  finally{b.disabled=false}
+}
+function msg(t){const m=w('msg');if(!t){m.classList.add('hidden');return}m.textContent=t;m.classList.remove('hidden')}
+async function submit(e){
+  e.preventDefault();msg('');w('instock').classList.add('hidden');
+  const g=id=>w(id).value.trim();
+  const num=id=>{const v=g(id);return v?Number(v):null};
+  if(!g('name')||!g('phone')){msg('Enter the customer name and phone number.');return}
+  if(!g('brand')&&!g('model')){msg('Enter the brand or the model the customer is waiting for.');return}
+  const body={customer_name:g('name'),customer_phone:g('phone'),brand:g('brand'),model:g('model'),year_from:num('year-from'),year_to:num('year-to'),vehicle_type:w('type').value,color:g('color'),notes:g('notes')};
+  const btn=w('save');btn.disabled=true;
+  try{
+    const r=await api('/waitlist',{method:'POST',body:JSON.stringify(body)});
+    notify('Added to the waiting list.');
+    w('form').reset();
+    if(r.in_stock_now&&r.in_stock_now.length){
+      const box=w('instock');
+      box.innerHTML='A matching vehicle is already in stock, so you can offer it now: '+r.in_stock_now.map(v=>esc([v.brand,v.model,v.year].filter(Boolean).join(' '))+' ('+esc(v.chassis_number)+') <button type="button" class="btn btn-dark text-xs" onclick="quoteVehicle(\''+encodeURIComponent(v.chassis_number)+'\')">Quote</button>').join(' · ');
+      box.classList.remove('hidden');
+    }
+    await load();
+  }catch(err){msg(err.message)}
+  finally{btn.disabled=false}
+}
+window.wlSetStatus=async(id,status)=>{
+  try{await api('/waitlist/'+id+'/status',{method:'PATCH',body:JSON.stringify({status})});await load()}
+  catch(e){notify(e.message,true)}
+};
+function init(){
+  if(inited)return;inited=true;
+  w('form').addEventListener('submit',submit);
+  w('filter').addEventListener('change',load);
+  w('refresh').addEventListener('click',load);
+}
+window.openWaitlistTab=()=>{init();load();checkAlerts()};
 })();
 
 // 11M. INITIALIZATION: restore the session or show the login screen
