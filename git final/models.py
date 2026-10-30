@@ -142,3 +142,19 @@ class WaitlistRequest(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     last_notified_at = Column(DateTime, nullable=True)
     notify_count = Column(Integer, nullable=False, default=0)
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    actor_username = Column(String(80), nullable=False, index=True)
+    actor_role = Column(String(30), nullable=False, default="")
+    action = Column(String(60), nullable=False, index=True)
+    entity_type = Column(String(40), nullable=False, default="")
+    entity_id = Column(String(80), nullable=False, default="")
+    chassis_number = Column(String(80), nullable=False, default="", index=True)
+    description = Column(Text, nullable=False, default="")
+    old_values = Column(Text, nullable=False, default="{}")
+    new_values = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
