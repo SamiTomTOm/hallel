@@ -168,6 +168,7 @@ class SaleCreate(BaseModel):
     bank_name: str = Field(default="", max_length=100)
     sold_by: str = Field(min_length=1, max_length=80)
     notes: str = Field(default="", max_length=2000)
+    booking_id: Optional[int] = Field(default=None, ge=1)
 
 
 class BookingCreate(BaseModel):
@@ -392,20 +393,94 @@ def update_inventory(chassis_number: str, data: VehicleUpdate, db: Session = Dep
     return vehicle_dict(v)
 
 @app.post("/sales", status_code=201)
-def create_sale(data: SaleCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "salesperson", "management"))):
-    v = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == data.chassis_number.strip().upper()).with_for_update().first()
-    if not v:
-        raise HTTPException(status_code=404, detail="Vehicle not found. Check the VIN/chassis number.")
-    if v.status != "In Stock":
-        raise HTTPException(status_code=409, detail=f"This vehicle cannot be sold because its status is '{v.status}'.")
-    if data.payment_method == "Bank" and not data.bank_name.strip():
-        raise HTTPException(status_code=422, detail="Bank name is required when payment method is Bank.")
-    sale = models.Sale(chassis_number=v.chassis_number, customer_name=data.customer_name.strip(), contact_info=data.contact_info.strip(), sale_price=data.sale_price, sold_by=data.sold_by.strip() or user.username, payment_method=data.payment_method, bank_name=data.bank_name.strip() if data.payment_method == "Bank" else "", notes=data.notes)
-    v.status = "Sold"
-    db.add(sale)
-    db.commit()
-    db.refresh(sale)
-    return {"message": "Sale recorded successfully.", "sale_id": sale.id, "chassis_number": sale.chassis_number, "sold_at": sale.sold_at.isoformat()}
+def create_sale(
+    data: SaleCreate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_roles("admin", "salesperson", "management")),
+):
+    """Record a sale from stock or complete an active vehicle booking."""
+    chassis = data.chassis_number.strip().upper()
+
+    try:
+        vehicle = (
+            db.query(models.Vehicle)
+            .filter(models.Vehicle.chassis_number == chassis)
+            .with_for_update()
+            .first()
+        )
+        if not vehicle:
+            raise HTTPException(status_code=404, detail="Vehicle not found. Check the VIN/chassis number.")
+
+        booking = None
+        if data.booking_id is not None:
+            booking = (
+                db.query(models.Booking)
+                .filter(
+                    models.Booking.id == data.booking_id,
+                    models.Booking.chassis_number == vehicle.chassis_number,
+                    models.Booking.status == "Booked",
+                )
+                .with_for_update()
+                .first()
+            )
+            if not booking:
+                raise HTTPException(status_code=409, detail="The selected active booking was not found for this vehicle.")
+        elif vehicle.status == "Booked":
+            # Backward-compatible fallback for clients that send only the VIN.
+            booking = (
+                db.query(models.Booking)
+                .filter(
+                    models.Booking.chassis_number == vehicle.chassis_number,
+                    models.Booking.status == "Booked",
+                )
+                .order_by(models.Booking.booking_date.desc())
+                .with_for_update()
+                .first()
+            )
+            if not booking:
+                raise HTTPException(status_code=409, detail="This vehicle is marked Booked, but no active booking exists.")
+
+        if vehicle.status not in ("In Stock", "Booked"):
+            raise HTTPException(status_code=409, detail=f"This vehicle cannot be sold because its status is '{vehicle.status}'.")
+        if vehicle.status == "Booked" and booking is None:
+            raise HTTPException(status_code=409, detail="An active booking is required to sell this booked vehicle.")
+        if booking and user.role == "salesperson" and booking.booked_by != user.username:
+            raise HTTPException(status_code=403, detail="You can only complete bookings you recorded.")
+        if data.payment_method == "Bank" and not data.bank_name.strip():
+            raise HTTPException(status_code=422, detail="Bank name is required when payment method is Bank.")
+
+        sale = models.Sale(
+            chassis_number=vehicle.chassis_number,
+            customer_name=data.customer_name.strip(),
+            contact_info=data.contact_info.strip() or (booking.customer_phone if booking else ""),
+            sale_price=data.sale_price,
+            sold_by=user.username,
+            payment_method=data.payment_method,
+            bank_name=data.bank_name.strip() if data.payment_method == "Bank" else "",
+            notes=data.notes.strip(),
+        )
+        vehicle.status = "Sold"
+        if booking:
+            booking.status = "Completed"
+
+        db.add(sale)
+        db.commit()
+        db.refresh(sale)
+        return {
+            "message": "Sale recorded successfully.",
+            "sale_id": sale.id,
+            "booking_id": booking.id if booking else None,
+            "booking_status": booking.status if booking else None,
+            "chassis_number": sale.chassis_number,
+            "sold_at": sale.sold_at.isoformat(),
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
 
 @app.get("/sales")
 def list_sales(limit: int = 200, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management", "stock_manager", "salesperson"))):
