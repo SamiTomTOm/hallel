@@ -253,6 +253,36 @@ def vehicle_dict(v: models.Vehicle):
     return {"id": v.id, "chassis_number": v.chassis_number, "vin": v.chassis_number, "brand": v.brand, "model": v.model, "year": v.year, "vehicle_type": v.vehicle_type, "type": v.vehicle_type, "color": v.color, "body": v.body, "store": v.store, "has_charger": v.has_charger, "has_accessories": v.has_accessories, "customer_name": v.customer_name, "has_key": v.has_key, "has_card": v.has_card, "received_date": v.received_date.isoformat() if v.received_date else None, "received_by": v.received_by, "status": v.status, "notes": v.notes, "created_at": v.created_at.isoformat() if v.created_at else None}
 
 
+def log_activity(db: Session, user: models.User, action: str, entity_type: str,
+                 entity_id: str = "", chassis_number: str = "", description: str = "",
+                 old_values: Optional[dict] = None, new_values: Optional[dict] = None):
+    """Stage an audit record in the same transaction as the business change."""
+    import json
+    row = models.ActivityLog(
+        actor_username=user.username, actor_role=user.role, action=action,
+        entity_type=entity_type, entity_id=str(entity_id or ""),
+        chassis_number=(chassis_number or "").strip().upper(),
+        description=description, old_values=json.dumps(old_values or {}, default=str),
+        new_values=json.dumps(new_values or {}, default=str),
+    )
+    db.add(row)
+    return row
+
+
+def activity_dict(row):
+    import json
+    def unpack(value):
+        try: return json.loads(value or "{}")
+        except (TypeError, ValueError): return {}
+    return {
+        "id": row.id, "actor_username": row.actor_username, "actor_role": row.actor_role,
+        "action": row.action, "entity_type": row.entity_type, "entity_id": row.entity_id,
+        "chassis_number": row.chassis_number, "description": row.description,
+        "old_values": unpack(row.old_values), "new_values": unpack(row.new_values),
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
 @app.on_event("startup")
 def create_initial_admin():
     """Create the first admin only when explicit environment credentials are configured."""
@@ -289,6 +319,8 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), user: models.Us
         raise HTTPException(status_code=409, detail="That username already exists.")
     record = models.User(username=data.username, password_hash=hash_password(data.password), role=data.role)
     db.add(record)
+    db.flush()
+    log_activity(db, user, "USER_CREATED", "User", record.id, description=f"Created staff account {record.username}", new_values={"username": record.username, "role": record.role})
     db.commit()
     return {"id": record.id, "username": record.username, "role": record.role, "is_active": record.is_active}
 
@@ -302,6 +334,7 @@ def reset_user_password(user_id: int, data: UserPasswordReset, db: Session = Dep
     if not target:
         raise HTTPException(status_code=404, detail="User not found.")
     target.password_hash = hash_password(data.password)
+    log_activity(db, user, "USER_PASSWORD_RESET", "User", target.id, description=f"Reset password for {target.username}")
     db.commit()
     return {"message": f"Password reset successfully for {target.username}.", "id": target.id, "username": target.username}
 
@@ -319,7 +352,9 @@ def set_user_role(user_id: int, data: UserRoleUpdate, db: Session = Depends(get_
         ).count()
         if other_admins == 0:
             raise HTTPException(status_code=400, detail="You cannot remove the role from the last active administrator.")
+    old_role = target.role
     target.role = data.role
+    log_activity(db, user, "USER_ROLE_CHANGED", "User", target.id, description=f"Changed {target.username} role from {old_role} to {target.role}", old_values={"role": old_role}, new_values={"role": target.role})
     db.commit()
     return {"id": target.id, "username": target.username, "role": target.role, "is_active": target.is_active}
 
@@ -339,7 +374,9 @@ def set_user_active(user_id: int, active: bool, db: Session = Depends(get_db), u
         ).count()
         if other_admins == 0:
             raise HTTPException(status_code=400, detail="You cannot deactivate the last active administrator.")
+    old_active = target.is_active
     target.is_active = active
+    log_activity(db, user, "USER_ACCESS_CHANGED", "User", target.id, description=f"{'Activated' if active else 'Deactivated'} account {target.username}", old_values={"is_active": old_active}, new_values={"is_active": active})
     db.commit()
     return {"id": target.id, "username": target.username, "is_active": target.is_active}
 
@@ -371,6 +408,9 @@ def add_inventory(data: VehicleCreate, db: Session = Depends(get_db), user: mode
     v = models.Vehicle(**payload, status="In Stock")
     db.add(v)
     try:
+        db.flush()
+        log_activity(db, user, "VEHICLE_RECEIVED", "Vehicle", v.id, v.chassis_number,
+                     f"Vehicle received into {v.store}", new_values=vehicle_dict(v))
         db.commit()
         db.refresh(v)
     except IntegrityError:
@@ -385,9 +425,14 @@ def update_inventory(chassis_number: str, data: VehicleUpdate, db: Session = Dep
     if not v:
         raise HTTPException(status_code=404, detail="Vehicle not found.")
     changes = data.model_dump(exclude_unset=True)
+    old_values = {key: getattr(v, key) for key in changes if getattr(v, key) != changes[key]}
     for key, value in changes.items():
         if value is not None:
             setattr(v, key, value)
+    new_values = {key: getattr(v, key) for key in old_values}
+    if old_values:
+        log_activity(db, user, "VEHICLE_UPDATED", "Vehicle", v.id, v.chassis_number,
+                     "Vehicle details updated", old_values=old_values, new_values=new_values)
     db.commit()
     db.refresh(v)
     return vehicle_dict(v)
@@ -464,6 +509,11 @@ def create_sale(
             booking.status = "Completed"
 
         db.add(sale)
+        db.flush()
+        log_activity(db, user, "VEHICLE_SOLD", "Sale", sale.id, vehicle.chassis_number,
+                     f"Sold to {sale.customer_name} for {sale.sale_price}",
+                     old_values={"vehicle_status": "Booked" if booking else "In Stock", "booking_status": "Booked" if booking else None},
+                     new_values={"vehicle_status": "Sold", "booking_status": booking.status if booking else None, "sale_price": sale.sale_price, "customer_name": sale.customer_name})
         db.commit()
         db.refresh(sale)
         return {
@@ -528,6 +578,10 @@ def create_booking(
     vehicle.status = "Booked"
 
     db.add(booking)
+    db.flush()
+    log_activity(db, user, "VEHICLE_BOOKED", "Booking", booking.id, vehicle.chassis_number,
+                 f"Booked for {booking.customer_name}", old_values={"vehicle_status": "In Stock"},
+                 new_values={"vehicle_status": "Booked", "customer_name": booking.customer_name, "booked_by": booking.booked_by, "booking_amount": booking.booking_amount})
     db.commit()
     db.refresh(booking)
 
@@ -624,7 +678,10 @@ def cancel_booking(
 
     booking.status = "Unbooked"
     vehicle.status = "In Stock"
-
+    log_activity(db, user, "BOOKING_CANCELLED", "Booking", booking.id, vehicle.chassis_number,
+                 f"Booking for {booking.customer_name} cancelled; vehicle returned to stock",
+                 old_values={"booking_status": "Booked", "vehicle_status": "Booked"},
+                 new_values={"booking_status": "Unbooked", "vehicle_status": "In Stock"})
     db.commit()
 
     return {
@@ -647,6 +704,10 @@ def create_transfer(data: TransferCreate, db: Session = Depends(get_db), user: m
     transfer = models.Transfer(chassis_number=v.chassis_number, from_store=v.store, to_store=data.to_store.strip(), transferred_by=data.transferred_by.strip() or user.username, notes=data.notes)
     v.store = data.to_store.strip()
     db.add(transfer)
+    db.flush()
+    log_activity(db, user, "VEHICLE_TRANSFERRED", "Transfer", transfer.id, v.chassis_number,
+                 f"Transferred from {transfer.from_store} to {transfer.to_store}",
+                 old_values={"store": transfer.from_store}, new_values={"store": transfer.to_store})
     db.commit()
     db.refresh(transfer)
     return {"message": "Branch transfer recorded successfully.", "transfer_id": transfer.id, "chassis_number": transfer.chassis_number, "current_store": v.store, "transferred_at": transfer.transferred_at.isoformat()}
@@ -688,6 +749,36 @@ def set_waitlist_status(request_id: int, data: WaitlistStatusUpdate, db: Session
     db.commit()
     db.refresh(record)
     return waitlist_dict(record)
+
+@app.get("/activity-logs")
+def get_activity_logs(limit: int = 200, action: Optional[str] = None,
+                      chassis_number: Optional[str] = None, db: Session = Depends(get_db),
+                      user: models.User = Depends(require_roles("admin", "management", "stock_manager", "salesperson"))):
+    limit = max(1, min(limit, 1000))
+    query = db.query(models.ActivityLog)
+    if user.role == "salesperson":
+        query = query.filter(models.ActivityLog.actor_username == user.username)
+    if action:
+        query = query.filter(models.ActivityLog.action == action)
+    if chassis_number:
+        query = query.filter(models.ActivityLog.chassis_number == chassis_number.strip().upper())
+    rows = query.order_by(models.ActivityLog.created_at.desc(), models.ActivityLog.id.desc()).limit(limit).all()
+    return [activity_dict(row) for row in rows]
+
+
+@app.get("/inventory/{chassis_number}/history")
+def get_vehicle_history(chassis_number: str, db: Session = Depends(get_db),
+                        user: models.User = Depends(get_current_user)):
+    chassis = chassis_number.strip().upper()
+    vehicle = db.query(models.Vehicle).filter(func.upper(models.Vehicle.chassis_number) == chassis).first()
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found.")
+    rows = (db.query(models.ActivityLog)
+            .filter(models.ActivityLog.chassis_number == chassis)
+            .order_by(models.ActivityLog.created_at.desc(), models.ActivityLog.id.desc())
+            .limit(500).all())
+    return {"vehicle": vehicle_dict(vehicle), "history": [activity_dict(row) for row in rows]}
+
 
 @app.get("/notifications/status")
 def notifications_status(user: models.User = Depends(require_roles("admin", "management"))):
