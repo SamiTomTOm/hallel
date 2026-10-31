@@ -232,22 +232,19 @@ def _handle_message(msg: dict, find_vehicle, execute):
     if "error" in parsed:
         _say(chat_id, parsed["error"] + "\n\nSend /help for the format.", msg.get("message_id")); return
 
-    token = secrets.token_hex(4)
-    with _lock:
-        now = time.time()
-        for k in [k for k, v in _pending.items() if v["exp"] < now]: _pending.pop(k, None)
-        _pending[token] = {"p": parsed, "user": user, "sid": sid, "exp": now + PENDING_TTL}
     _say(chat_id, _describe(parsed) + f"\n\nRecorded by: {user}",
          msg.get("message_id"),
-         [{"text": "Confirm", "callback_data": f"y:{token}"}, {"text": "Cancel", "callback_data": f"n:{token}"}])
+         [{"text": "Confirm", "callback_data": f"y:{sid}"}, {"text": "Cancel", "callback_data": f"n:{sid}"}])
 
 
-def _handle_callback(cb: dict, execute):
+def _handle_callback(cb: dict, find_vehicle, execute):
+    """Stateless: the message the Confirm button sits on is a reply to the original post, and Telegram sends that
+    original (with its caption) back to us. We simply read it again, so this works on serverless hosts like Vercel."""
     data = cb.get("data", "")
     msg = cb.get("message", {}) or {}
     chat_id, mid = msg.get("chat", {}).get("id"), msg.get("message_id")
     sid = str(cb.get("from", {}).get("id", ""))
-    act, _, token = data.partition(":")
+    act, _, owner = data.partition(":")
 
     def answer(t):
         try: _call("answerCallbackQuery", {"callback_query_id": cb.get("id"), "text": t})
@@ -257,23 +254,46 @@ def _handle_callback(cb: dict, execute):
         try: _call("editMessageText", {"chat_id": chat_id, "message_id": mid, "text": t})
         except Exception as e: _state["last_error"] = f"edit failed: {e}"
 
-    with _lock:
-        item = _pending.get(token)
-        if not item or item["exp"] < time.time():
-            _pending.pop(token, None); answer("This request expired."); edit("Expired. Please send the message again."); return
-        if sid != item["sid"] and sid not in staff_map():
-            answer("Only staff can do this."); return
-        if sid != item["sid"] and act == "y":
-            answer("Only the person who sent it can confirm."); return
-        _pending.pop(token, None)
-
+    if str(chat_id) != _group(): return
+    if sid != owner:
+        answer("Only the person who sent it can do this."); return
+    user = staff_map().get(sid)
+    orig = msg.get("reply_to_message") or {}
+    text = (orig.get("text") or orig.get("caption") or "").strip()
+    if not user or not text:
+        answer("Could not read the original message."); edit("Could not read the original message. Please send it again."); return
+    if time.time() - int(msg.get("date", 0) or 0) > PENDING_TTL * 6:
+        answer("Expired"); edit("Expired. Please send the message again."); return
     if act != "y":
         answer("Cancelled"); edit("Cancelled. Nothing was saved."); return
-    ok, message = execute(item["p"]["kind"], item["user"], item["p"])
+    p = parse(text, find_vehicle)
+    if not p or "error" in p:
+        answer("Not saved"); edit("NOT SAVED\n" + (p or {}).get("error", "Could not read the message.")); return
+    ok, message = execute(p["kind"], user, p)
     _state["handled"] += 1 if ok else 0
     answer("Saved" if ok else "Not saved")
-    head = _describe(item["p"]).split("\n")[0]
-    edit((f"SAVED - {head.title()} recorded\n" if ok else "NOT SAVED\n") + _describe(item["p"]) + f"\nBy: {item['user']}\n\n{message}")
+    head = _describe(p).split("\n")[0]
+    edit((f"SAVED - {head.title()} recorded\n" if ok else "NOT SAVED\n") + _describe(p) + f"\nBy: {user}\n\n{message}")
+
+
+def handle_update(u: dict, find_vehicle, execute):
+    """Process one Telegram update (used by the webhook and by the polling loop)."""
+    try:
+        if "callback_query" in u: _handle_callback(u["callback_query"], find_vehicle, execute)
+        elif "message" in u: _handle_message(u["message"], find_vehicle, execute)
+    except Exception as e:
+        _state["last_error"] = f"handler: {e}"
+        print(f"[telegram-bot] handler error: {e}", flush=True)
+
+
+def webhook_secret() -> str:
+    import hashlib
+    return hashlib.sha256(("hallel-webhook:" + _token()).encode()).hexdigest()[:32]
+
+
+def set_webhook(url: str) -> dict:
+    return _call("setWebhook", {"url": url, "secret_token": webhook_secret(),
+                                "allowed_updates": ["message", "callback_query"], "drop_pending_updates": True})
 
 
 # ------------------------------------------------------------------ polling loop
@@ -292,11 +312,7 @@ def _loop(find_vehicle, execute):
             _state["last_error"] = ""
             for u in r.get("result", []):
                 offset = u["update_id"] + 1
-                try:
-                    if "callback_query" in u: _handle_callback(u["callback_query"], execute)
-                    elif "message" in u: _handle_message(u["message"], find_vehicle, execute)
-                except Exception as e:
-                    _state["last_error"] = f"handler: {e}"
+                handle_update(u, find_vehicle, execute)
         except urllib.error.HTTPError as e:
             print(f"[telegram-bot] Telegram HTTP {e.code}", flush=True)
             _state["last_error"] = f"Telegram HTTP {e.code}" + (" (another copy of the server is also polling this bot)" if e.code == 409 else "")
@@ -315,6 +331,9 @@ def start(find_vehicle, execute) -> bool:
     miss = [n for n, v in (("TELEGRAM_GROUP_ID", _group()), ("TELEGRAM_STAFF", staff_map())) if not v]
     if miss:
         print("[telegram-bot] running in setup mode (only /myid works). Still missing in .env: " + ", ".join(miss), flush=True)
+    if os.getenv("VERCEL"):
+        print("[telegram-bot] Vercel detected: using webhook mode (open /telegram/setup once).", flush=True)
+        return False
     if _state["running"]: return False
     print("[telegram-bot] started, listening to group " + _group(), flush=True)
     _state["running"] = True
