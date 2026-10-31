@@ -5,7 +5,7 @@ Standard library only (urllib + threading). Runs as a background thread inside
 the FastAPI process, using Telegram long polling, so no public URL is needed.
 
 Environment variables
-  TELEGRAM_BOT_TOKEN   =9221246170:AAEhnRl9vxtYbWfe4oJ9Ev3mrx9ddNzyQuw         (required)
+  TELEGRAM_BOT_TOKEN   bot token from @BotFather            (required)
   TELEGRAM_GROUP_ID    the group's chat id, e.g. -1001234567 (required)
   TELEGRAM_STAFF       "telegram_id:system_username,..."     (required)
                        e.g. 111222333:abel,444555666:sara
@@ -34,14 +34,21 @@ _state = {"running": False, "last_error": "", "handled": 0}
 
 
 # ------------------------------------------------------------------ config
-def _token(): return os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-def _group(): return os.getenv("TELEGRAM_GROUP_ID", "").strip()
+# Fallback values, used only when the host has no environment variable set.
+# ONLY fill these in if your GitHub repository is PRIVATE; otherwise anyone can take over the bot.
+FALLBACK_TOKEN = "9221246170:AAEhnRl9vxtYbWfe4oJ9Ev3mrx9ddNzyQuw"   # e.g. "123456:ABC..."
+FALLBACK_GROUP_ID = ""  # e.g. "-1001234567890"
+FALLBACK_STAFF = ""   # e.g. "111222333:abel,444555666:sara"
+
+
+def _token(): return os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or FALLBACK_TOKEN.strip()
+def _group(): return os.getenv("TELEGRAM_GROUP_ID", "").strip() or FALLBACK_GROUP_ID.strip()
 def _api_base(): return os.getenv("TELEGRAM_API_BASE", "https://api.telegram.org").rstrip("/")
 
 
 def staff_map() -> dict:
     out = {}
-    for part in os.getenv("TELEGRAM_STAFF", "").split(","):
+    for part in (os.getenv("TELEGRAM_STAFF", "") or FALLBACK_STAFF).split(","):
         if ":" in part:
             tid, name = part.split(":", 1)
             if tid.strip() and name.strip():
