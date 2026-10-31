@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Literal
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -341,6 +341,26 @@ def telegram_execute(kind: str, username: str, p: dict):
         return False, f"Unexpected error: {e}"
     finally:
         db.close()
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """Telegram posts every group message here (used on Vercel, where background polling cannot run)."""
+    if request.headers.get("x-telegram-bot-api-secret-token") != tgbot.webhook_secret():
+        raise HTTPException(status_code=403, detail="Forbidden")
+    update = await request.json()
+    tgbot.handle_update(update, telegram_find_vehicles, telegram_execute)
+    return {"ok": True}
+
+
+@app.get("/telegram/setup")
+def telegram_setup(request: Request):
+    """Open once in the browser after deploying: tells Telegram to send group messages to this server."""
+    host = request.headers.get("x-forwarded-host") or request.url.netloc
+    try:
+        return {"webhook": f"https://{host}/telegram/webhook", "telegram_says": tgbot.set_webhook(f"https://{host}/telegram/webhook")}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Telegram refused: {e}")
 
 
 @app.on_event("startup")
