@@ -13,9 +13,10 @@ from sqlalchemy import func, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from database import Base, engine, get_db
+from database import Base, engine, get_db, SessionLocal
 import models
 import waitlist as wl
+import telegram_bot as tgbot
 
 load_dotenv()
 Base.metadata.create_all(bind=engine)
@@ -296,6 +297,55 @@ def create_initial_admin():
             db.commit()
     finally:
         db.close()
+
+
+def telegram_find_vehicles(token: str):
+    """Match a full VIN or the last digits of a VIN (the way the sales group writes it)."""
+    token = token.strip().upper()
+    if len(token) < 3:
+        return []
+    db = SessionLocal()
+    try:
+        exact = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == token).all()
+        rows = exact or db.query(models.Vehicle).filter(models.Vehicle.chassis_number.like("%" + token)).limit(10).all()
+        return [vehicle_dict(v) for v in rows]
+    finally:
+        db.close()
+
+
+def telegram_execute(kind: str, username: str, p: dict):
+    """Record a sale/booking asked for in the Telegram group, as the linked system user."""
+    db = SessionLocal()
+    try:
+        user = db.query(models.User).filter(models.User.username == username, models.User.is_active == True).first()
+        if not user:
+            return False, f"System user '{username}' was not found or is inactive."
+        if user.role not in ("admin", "salesperson", "management"):
+            return False, "Your role is not allowed to record sales or bookings."
+        note = p.get("notes") or "Recorded from Telegram group"
+        if kind == "sale":
+            data = SaleCreate(chassis_number=p["vin"], customer_name=p["customer"], contact_info=p["phone"],
+                              sale_price=p["amount"], payment_method=p["payment"], bank_name=p["bank"],
+                              sold_by=user.username, notes=note)
+            create_sale(data, db, user)
+            return True, "Sale saved in the system."
+        data = BookingCreate(chassis_number=p["vin"], customer_name=p["customer"], customer_phone=p["phone"],
+                             booked_by=user.username, booking_amount=p["amount"], notes=note)
+        create_booking(data, db, user)
+        return True, "Booking saved in the system."
+    except HTTPException as e:
+        db.rollback()
+        return False, str(e.detail)
+    except Exception as e:
+        db.rollback()
+        return False, f"Unexpected error: {e}"
+    finally:
+        db.close()
+
+
+@app.on_event("startup")
+def start_telegram_group_bot():
+    tgbot.start(telegram_find_vehicles, telegram_execute)
 
 
 @app.get("/health")
@@ -782,7 +832,7 @@ def get_vehicle_history(chassis_number: str, db: Session = Depends(get_db),
 
 @app.get("/notifications/status")
 def notifications_status(user: models.User = Depends(require_roles("admin", "management"))):
-    return {"sms_configured": wl.sms_configured(), "sms_provider": wl.sms_provider(), "telegram_configured": wl.telegram_configured(), "alerts_configured": wl.alerts_configured()}
+    return {"sms_configured": wl.sms_configured(), "sms_provider": wl.sms_provider(), "telegram_configured": wl.telegram_configured(), "alerts_configured": wl.alerts_configured(), **tgbot.status()}
 
 @app.post("/notifications/test")
 def notifications_test(user: models.User = Depends(require_roles("admin", "management"))):
