@@ -5,7 +5,7 @@ Standard library only (urllib + threading). Runs as a background thread inside
 the FastAPI process, using Telegram long polling, so no public URL is needed.
 
 Environment variables
-  TELEGRAM_BOT_TOKEN   bot token from @BotFather            (required)
+  TELEGRAM_BOT_TOKEN   =9221246170:AAEhnRl9vxtYbWfe4oJ9Ev3mrx9ddNzyQuw         (required)
   TELEGRAM_GROUP_ID    the group's chat id, e.g. -1001234567 (required)
   TELEGRAM_STAFF       "telegram_id:system_username,..."     (required)
                        e.g. 111222333:abel,444555666:sara
@@ -211,7 +211,9 @@ def _handle_message(msg: dict, find_vehicle, execute):
 
     if cmd == "/myid":
         _say(chat_id, f"Your Telegram id: {sid}\nThis chat id: {chat_id}", msg.get("message_id")); return
-    if chat_id != _group(): return  # ignore every other chat
+    if chat_id != _group():
+        print(f"[telegram-bot] ignored a message from chat {chat_id} (TELEGRAM_GROUP_ID is {_group()!r})", flush=True)
+        return  # ignore every other chat
     if cmd in ("/help", "/start"):
         _say(chat_id, HELP, msg.get("message_id")); return
 
@@ -289,16 +291,25 @@ def _loop(find_vehicle, execute):
                 except Exception as e:
                     _state["last_error"] = f"handler: {e}"
         except urllib.error.HTTPError as e:
+            print(f"[telegram-bot] Telegram HTTP {e.code}", flush=True)
             _state["last_error"] = f"Telegram HTTP {e.code}" + (" (another copy of the server is also polling this bot)" if e.code == 409 else "")
             time.sleep(10)
         except Exception as e:
+            if _state["last_error"] != f"{type(e).__name__}: {e}": print(f"[telegram-bot] {type(e).__name__}: {e}", flush=True)
             _state["last_error"] = f"{type(e).__name__}: {e}"
             time.sleep(5)
 
 
 def start(find_vehicle, execute) -> bool:
     """find_vehicle(VIN)->dict|None ; execute(kind, username, parsed)->(ok, message)."""
-    if not configured() or _state["running"]: return False
+    if not _token():
+        print("[telegram-bot] NOT started. TELEGRAM_BOT_TOKEN is missing in .env", flush=True)
+        return False
+    miss = [n for n, v in (("TELEGRAM_GROUP_ID", _group()), ("TELEGRAM_STAFF", staff_map())) if not v]
+    if miss:
+        print("[telegram-bot] running in setup mode (only /myid works). Still missing in .env: " + ", ".join(miss), flush=True)
+    if _state["running"]: return False
+    print("[telegram-bot] started, listening to group " + _group(), flush=True)
     _state["running"] = True
     threading.Thread(target=_loop, args=(find_vehicle, execute), daemon=True, name="telegram-group-bot").start()
     return True
