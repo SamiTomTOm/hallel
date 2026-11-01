@@ -502,6 +502,156 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
 @media(prefers-reduced-motion:reduce){.notification-bell,.notification-tab,.notification-item,.profile-trigger{transition:none}}
 </style>
 
+<style id="hallel-white-emerald-glass-theme">
+/* ==========================================================
+   HALLEL WHITE EMERALD GLASS — application-wide visual layer
+   Visual-only overrides. Existing HTML, IDs, API calls and JS
+   are intentionally left unchanged.
+   ========================================================== */
+:root{
+  color-scheme:light;
+  --hallel-emerald:#07845e;
+  --hallel-emerald-dark:#075b43;
+  --hallel-ink:#15372c;
+  --hallel-muted:#71877c;
+  --hallel-line:rgba(166,197,181,.38);
+  --hallel-glass:rgba(255,255,255,.76);
+  --hallel-glass-strong:rgba(255,255,255,.90);
+  --hallel-shadow:0 12px 32px rgba(28,75,54,.10),0 3px 9px rgba(28,75,54,.045),inset 0 1px 0 rgba(255,255,255,.94);
+  --hallel-shadow-hover:0 18px 38px rgba(28,75,54,.15),0 5px 12px rgba(28,75,54,.07),inset 0 1px 0 rgba(255,255,255,.98);
+}
+html,body,#app{background:radial-gradient(ellipse at 84% 0%,rgba(192,238,216,.34),transparent 34%),radial-gradient(ellipse at 8% 60%,rgba(218,240,229,.30),transparent 35%),#f3f8f5!important;color:var(--hallel-ink)!important}
+body{background-attachment:fixed!important}
+#app{min-height:100vh;background:transparent!important}
+
+/* Header and main navigation */
+#app>header{
+  background:rgba(255,255,255,.80)!important;
+  color:var(--hallel-ink)!important;
+  border:1px solid rgba(255,255,255,.86)!important;
+  box-shadow:0 8px 28px rgba(25,74,51,.075),inset 0 1px 0 #fff!important;
+  backdrop-filter:blur(18px) saturate(145%);
+  -webkit-backdrop-filter:blur(18px) saturate(145%);
+}
+#app>header .muted{color:var(--hallel-muted)!important}
+#app>header .text-emerald-400{color:var(--hallel-emerald)!important}
+#app>header .bg-emerald-400{background:rgba(220,245,232,.88)!important;color:var(--hallel-emerald)!important}
+#app main{position:relative}
+#nav{
+  background:rgba(255,255,255,.78)!important;
+  border:1px solid rgba(255,255,255,.90)!important;
+  box-shadow:0 14px 34px rgba(27,73,53,.10),inset 0 1px 0 rgba(255,255,255,.98)!important;
+  backdrop-filter:blur(20px) saturate(145%);
+  -webkit-backdrop-filter:blur(20px) saturate(145%);
+}
+#nav:before{color:var(--hallel-emerald)!important}
+#nav .nav-btn{color:#687f73!important;border:1px solid transparent!important;transition:background .18s ease,color .18s ease,box-shadow .18s ease,transform .18s ease}
+#nav .nav-btn:hover{background:rgba(224,245,233,.72)!important;color:var(--hallel-emerald-dark)!important;transform:translateX(2px)}
+#nav .nav-btn.nav-active{background:linear-gradient(105deg,rgba(218,245,230,.96),rgba(238,250,243,.80))!important;color:var(--hallel-emerald)!important;border-color:rgba(126,196,157,.24)!important;box-shadow:inset 3px 0 var(--hallel-emerald),0 5px 14px rgba(8,127,91,.08)!important}
+
+/* Every workspace card/panel: inventory, sales, bookings, transfers,
+   reports, staff, waiting list, activity and dashboard. */
+#app .panel,
+#app .hal-modal-card,
+#app .q-panel,
+#app .report-card{
+  background:linear-gradient(145deg,rgba(255,255,255,.91),rgba(247,252,249,.76))!important;
+  border:1px solid rgba(255,255,255,.94)!important;
+  outline:1px solid rgba(172,204,187,.18);
+  border-radius:20px!important;
+  box-shadow:var(--hallel-shadow)!important;
+  color:var(--hallel-ink)!important;
+  backdrop-filter:blur(16px) saturate(135%);
+  -webkit-backdrop-filter:blur(16px) saturate(135%);
+}
+#app .panel{transition:box-shadow .2s ease,border-color .2s ease}
+#app .panel:hover{box-shadow:0 15px 34px rgba(28,75,54,.12),inset 0 1px 0 #fff!important}
+#app .panel h2,#app .panel h3,#app .tab-content h2,#app .tab-content h3{color:var(--hallel-ink)!important}
+#app .muted{color:var(--hallel-muted)!important}
+#app .field-label{color:#506c5d!important}
+
+/* Metric cards across Dashboard, Inventory and Reports */
+#app .stat{
+  position:relative;isolation:isolate;overflow:hidden;
+  background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(240,250,245,.76))!important;
+  border:1px solid rgba(255,255,255,.98)!important;
+  border-radius:21px!important;
+  padding:20px!important;
+  color:var(--hallel-ink)!important;
+  box-shadow:0 13px 28px rgba(26,83,57,.11),0 3px 8px rgba(26,83,57,.045),inset 0 1px 0 #fff!important;
+  backdrop-filter:blur(15px) saturate(145%);
+  -webkit-backdrop-filter:blur(15px) saturate(145%);
+  transition:transform .2s ease,box-shadow .2s ease;
+}
+#app .stat:after{content:"";position:absolute;z-index:-1;left:-8%;right:-8%;bottom:-34px;height:76px;background:radial-gradient(ellipse at 72% 35%,rgba(81,218,157,.19),transparent 62%);pointer-events:none}
+#app .stat:hover{transform:translateY(-3px);box-shadow:0 19px 36px rgba(26,83,57,.15),inset 0 1px 0 #fff!important}
+#app .stat .muted{color:#6c8478!important}
+#app .stat .text-emerald-300,#app .stat .text-emerald-700{color:#07845e!important}
+#app .stat .text-amber-300,#app .stat .text-amber-700{color:#e87922!important}
+#app .stat .text-blue-300,#app .stat .text-blue-700{color:#3984b8!important}
+#tab-dashboard #inventory-stats .stat:nth-child(3):after{background:radial-gradient(ellipse at 72% 35%,rgba(83,164,221,.20),transparent 62%)}
+#tab-dashboard #inventory-stats .stat:nth-child(4):after{background:radial-gradient(ellipse at 72% 35%,rgba(255,164,78,.22),transparent 62%)}
+
+/* Forms and controls */
+#app input:not([type=checkbox]):not([type=radio]),
+#app select,#app textarea{
+  background:rgba(255,255,255,.86)!important;
+  border:1px solid rgba(157,190,171,.48)!important;
+  color:#193b2e!important;border-radius:12px!important;
+  box-shadow:0 2px 7px rgba(26,75,52,.035),inset 0 1px 0 rgba(255,255,255,.95)!important;
+}
+#app input::placeholder,#app textarea::placeholder{color:#91a69a!important}
+#app input:focus,#app select:focus,#app textarea:focus{border-color:rgba(8,145,98,.72)!important;box-shadow:0 0 0 3px rgba(8,145,98,.13),0 4px 12px rgba(8,145,98,.06)!important;outline:none!important}
+#app input[type=checkbox],#app input[type=radio]{accent-color:var(--hallel-emerald)}
+#app .btn{border-radius:12px!important;transition:transform .17s ease,box-shadow .17s ease,background .17s ease}
+#app .btn-green{background:linear-gradient(135deg,#07976a,#087b58)!important;color:#fff!important;border:1px solid rgba(5,112,78,.18)!important;box-shadow:0 6px 15px rgba(8,127,91,.20)!important}
+#app .btn-green:hover{transform:translateY(-1px);box-shadow:0 10px 20px rgba(8,127,91,.25)!important}
+#app .btn-dark{background:rgba(235,246,239,.88)!important;color:#20513c!important;border:1px solid rgba(154,194,170,.36)!important;box-shadow:0 3px 9px rgba(28,75,54,.045)!important}
+#app .btn-dark:hover{background:rgba(218,241,227,.96)!important;box-shadow:0 7px 15px rgba(28,75,54,.09)!important;transform:translateY(-1px)}
+#app button:focus-visible,#app a:focus-visible{outline:2px solid rgba(8,132,94,.65)!important;outline-offset:3px}
+
+/* Tables and list rows across all sections */
+#app .table-wrap{border-radius:14px;scrollbar-width:thin;scrollbar-color:#bdd9c8 transparent}
+#app table{border-collapse:separate;border-spacing:0;overflow:hidden}
+#app thead th{background:rgba(235,246,240,.82)!important;color:#5c7869!important;border-bottom:1px solid rgba(171,202,184,.38)!important}
+#app tbody td{color:#29483a!important;border-top:1px solid rgba(191,213,199,.30)!important}
+#app tbody tr{transition:background .15s ease}
+#app tbody tr:hover{background:rgba(229,246,236,.62)!important}
+#app .badge{box-shadow:0 1px 4px rgba(20,65,43,.05)}
+
+/* Existing dialogs and popups get the same raised glass treatment.
+   Keep camera preview dark for accurate camera contrast. */
+#vehicle-modal>div,#booking-modal>div,#sale-modal>div,#user-password-modal>div,
+#profile-edit-modal>div,.hal-modal-card{
+  background:linear-gradient(145deg,rgba(255,255,255,.97),rgba(242,250,245,.92))!important;
+  border:1px solid rgba(255,255,255,.98)!important;
+  box-shadow:0 26px 75px rgba(19,62,43,.24),inset 0 1px 0 #fff!important;
+  border-radius:22px!important;
+}
+#vin-scan-modal{background:rgba(10,31,23,.78)!important;backdrop-filter:blur(9px)}
+.vin-scan-card{box-shadow:0 24px 70px rgba(6,36,23,.36)!important}
+#app .toast{border:1px solid rgba(255,255,255,.75);border-radius:15px;box-shadow:0 16px 38px rgba(20,62,43,.18)!important;backdrop-filter:blur(14px)}
+
+/* Notification and user menus remain consistent with approved glass dropdowns */
+.notification-panel,.profile-dropdown{backdrop-filter:blur(24px) saturate(160%)!important;-webkit-backdrop-filter:blur(24px) saturate(160%)!important;box-shadow:0 24px 60px rgba(22,62,45,.20),inset 0 1px 0 rgba(255,255,255,.92)!important}
+.profile-trigger{color:var(--hallel-ink)!important}
+.profile-trigger:hover,.profile-trigger[aria-expanded="true"]{background:rgba(222,244,231,.72)!important}
+.profile-identity .muted{color:var(--hallel-muted)!important}
+
+/* Mobile navigation: preserve the existing five-button behavior, add glass depth */
+.mobile-bottom-nav{background:rgba(255,255,255,.84)!important;border-top:1px solid rgba(255,255,255,.94)!important;box-shadow:0 -9px 28px rgba(25,73,52,.10)!important;backdrop-filter:blur(22px) saturate(150%)!important;-webkit-backdrop-filter:blur(22px) saturate(150%)!important}
+.mobile-nav-btn.mobile-nav-active{background:rgba(220,244,230,.88)!important;color:var(--hallel-emerald)!important}
+.mobile-nav-scan .mobile-nav-icon{box-shadow:0 8px 20px rgba(8,127,91,.30)!important}
+
+/* Avoid motion for users who request reduced motion */
+@media(prefers-reduced-motion:reduce){#app .panel,#app .stat,#app .btn,#nav .nav-btn{transition:none!important}#app .stat:hover,#app .btn:hover,#nav .nav-btn:hover{transform:none!important}}
+@media(max-width:767px){
+  #app .panel,#app .stat{border-radius:17px!important}
+  #app .stat{padding:16px!important;box-shadow:0 9px 22px rgba(26,83,57,.10),inset 0 1px 0 #fff!important}
+  #app>header{backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%)}
+}
+
+</style>
 </head>
 <body>
 
