@@ -741,6 +741,25 @@ html,body,#app{background:#f1f4f2!important;color:#172b25!important}
   </form>
  </div>
 </div>
+<!-- Sale void modal: follows the existing Hallel modal design. -->
+<div id="void-sale-modal" class="hal-modal" role="dialog" aria-modal="true" aria-labelledby="void-sale-title">
+ <div class="hal-modal-card" style="width:min(520px,100%)">
+  <div class="flex items-start justify-between gap-4 mb-5">
+   <div><p class="text-xs uppercase tracking-widest font-bold" style="color:#b42318">SALE MANAGEMENT</p><h2 id="void-sale-title" class="text-2xl font-black mt-1">Void sale</h2><p class="muted text-sm mt-1">The vehicle will be returned to In Stock. The original sale record will be preserved.</p></div>
+   <button type="button" id="void-sale-close" class="btn btn-dark" aria-label="Close void sale form">✕</button>
+  </div>
+  <div class="rounded-xl border p-3 mb-4" style="background:#fff8f7;border-color:#f2d5d1">
+   <div class="text-xs muted">Sale being voided</div><div id="void-sale-customer" class="font-bold mt-1">—</div><div id="void-sale-vin" class="text-sm mt-1">—</div>
+  </div>
+  <form id="void-sale-form" class="space-y-4">
+   <input type="hidden" id="void-sale-id">
+   <div><label class="hal-modal-label" for="void-sale-reason">Reason <span class="font-normal muted">(optional)</span></label><textarea id="void-sale-reason" rows="4" maxlength="1000" placeholder="Add a reason for voiding this sale, if applicable"></textarea></div>
+   <p id="void-sale-error" class="hidden text-sm text-rose-700"></p>
+   <div class="flex flex-wrap justify-end gap-2 pt-2"><button type="button" id="void-sale-cancel" class="btn btn-dark">Cancel</button><button type="submit" id="void-sale-confirm" class="btn" style="background:#b42318;color:#fff">Void sale</button></div>
+  </form>
+ </div>
+</div>
+
 <!-- Read-only vehicle information modal. -->
 <div id="vehicle-info-modal" class="hal-modal" role="dialog" aria-modal="true" aria-labelledby="vehicle-info-title">
  <div class="hal-modal-card">
@@ -892,7 +911,7 @@ $('vehicle-info-content').innerHTML=vehicleHtml+saleHtml+`<div class=\"pt-3\"><b
 $('vehicle-info-close').addEventListener('click',()=>hideHalModal('vehicle-info-modal'));
 $('vehicle-info-done').addEventListener('click',()=>hideHalModal('vehicle-info-modal'));
 $('vehicle-info-modal').addEventListener('click',e=>{if(e.target===$('vehicle-info-modal'))hideHalModal('vehicle-info-modal')});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideHalModal('inventory-edit-modal');hideHalModal('vehicle-info-modal')}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideHalModal('inventory-edit-modal');hideHalModal('vehicle-info-modal');hideHalModal('void-sale-modal')}});
 // 11I. SALES: VIN CHECK, SUBMISSION, AND RECENT SALES
 // Fetch vehicle details from the same inventory API/database when the VIN is entered.
 let saleVinLookupTimer=null, saleVinLookupSequence=0, saleVehicleReady=false;
@@ -955,7 +974,35 @@ $('sale-vin').addEventListener('change',lookupSaleVehicle);
 $('sale-vin').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();clearTimeout(saleVinLookupTimer);lookupSaleVehicle()}});
 $('sale-payment-method').addEventListener('change',()=>{$('sale-bank-wrap').classList.toggle('hidden',$('sale-payment-method').value!=='Bank');$('sale-bank-name').required=$('sale-payment-method').value==='Bank';if($('sale-payment-method').value!=='Bank')$('sale-bank-name').value=''});
 $('sale-form').addEventListener('submit',async e=>{e.preventDefault();if(!canSell()){notify('You do not have permission to record sales.',true);return}if(!saleVehicleReady){notify('Enter a valid VIN and confirm that the vehicle is in stock before recording the sale.',true);return}if(!confirm('Confirm this vehicle sale? The inventory status will change to Sold.'))return;const data={chassis_number:$('sale-vin').value.trim().toUpperCase(),customer_name:$('sale-customer').value.trim(),contact_info:$('sale-contact').value.trim(),sale_price:Number($('sale-price').value),commission:$('sale-commission').value,payment_method:$('sale-payment-method').value,bank_name:$('sale-bank-name').value.trim(),sold_by:$('sale-sold-by').value.trim()||currentUser.username,notes:$('sale-notes').value.trim()};try{await api('/sales',{method:'POST',body:JSON.stringify(data)});notify('Sale recorded. Inventory status updated to Sold.');$('sale-form').reset();$('sale-sold-by').value=currentUser.username;$('sale-vehicle-info').textContent='Enter a VIN to load the vehicle from inventory.';clearSaleVehicleDetails();await loadRecentSales();await loadInventory()}catch(err){notify(err.message,true)}});
-async function loadRecentSales(){try{const rows=await api('/sales?limit=20');$('recent-sales').innerHTML=rows.length?rows.map(s=>`<div class="border-b border-emerald-950 pb-3"><div class="flex justify-between gap-3"><span class="font-semibold text-sm">${esc(s.customer_name)}</span><span class="font-bold ${s.status==='Voided'?'text-rose-600':'text-emerald-700'}">${s.status==='Voided'?'VOIDED':'USD '+money(s.sale_price)}</span></div><div class="text-xs muted mt-1">${esc(s.chassis_number)} · ${esc(s.sold_by)} · ${esc(String(s.sold_at||'').slice(0,10))} · ${esc(s.commission||'No commission')}</div>${currentUser?.role==='admin'&&s.status!=='Voided'?`<button type="button" class="text-xs text-rose-700 font-bold mt-2" data-void-sale="${s.id}">Void sale</button>`:''}${s.status==='Voided'?`<div class="text-xs text-rose-600 mt-1">Voided by ${esc(s.voided_by||'—')} · ${esc(s.void_reason||'No reason provided')}</div>`:''}</div>`).join(''):'<p class="muted text-sm">No sales recorded yet.</p>';$('recent-sales').querySelectorAll('[data-void-sale]').forEach(btn=>btn.addEventListener('click',async()=>{const reason=prompt('Optional reason for voiding this sale:','');if(reason===null)return;if(!confirm('Void this sale? The vehicle will return to In Stock.'))return;btn.disabled=true;try{const result=await api('/sales/'+btn.dataset.voidSale+'/void',{method:'POST',body:JSON.stringify({reason})});notify(result.message||'Sale voided.');await loadRecentSales();await loadInventory();await loadDashboard();if(canSeeReports())await loadReports();}catch(err){notify(err.message,true);btn.disabled=false}}));}catch(e){$('recent-sales').innerHTML=`<p class="text-rose-300 text-sm">${esc(e.message)}</p>`}}
+let voidSaleSourceButton=null;
+function openVoidSaleModal(saleId,sourceButton){
+ if(currentUser?.role!=='admin'){notify('Only administrators can void sales.',true);return}
+ const row=sourceButton?.closest('.border-b');
+ $('void-sale-id').value=String(saleId);
+ $('void-sale-customer').textContent=row?.querySelector('.font-semibold')?.textContent||'Sale #'+saleId;
+ $('void-sale-vin').textContent=row?.querySelector('.muted')?.textContent||'';
+ $('void-sale-reason').value='';$('void-sale-error').classList.add('hidden');
+ voidSaleSourceButton=sourceButton||null;showHalModal('void-sale-modal');
+ setTimeout(()=>$('void-sale-reason').focus(),40);
+}
+function closeVoidSaleModal(){hideHalModal('void-sale-modal');$('void-sale-form').reset();$('void-sale-error').classList.add('hidden');voidSaleSourceButton=null}
+$('void-sale-close').addEventListener('click',closeVoidSaleModal);
+$('void-sale-cancel').addEventListener('click',closeVoidSaleModal);
+$('void-sale-modal').addEventListener('click',e=>{if(e.target===$('void-sale-modal'))closeVoidSaleModal()});
+$('void-sale-form').addEventListener('submit',async e=>{
+ e.preventDefault();
+ if(currentUser?.role!=='admin'){notify('Only administrators can void sales.',true);closeVoidSaleModal();return}
+ const id=$('void-sale-id').value;if(!id)return;
+ const reason=$('void-sale-reason').value.trim();
+ const button=$('void-sale-confirm');button.disabled=true;button.textContent='Voiding…';$('void-sale-error').classList.add('hidden');
+ try{
+  const result=await api('/sales/'+encodeURIComponent(id)+'/void',{method:'POST',body:JSON.stringify({reason})});
+  closeVoidSaleModal();notify(result.message||'Sale voided.');
+  await loadRecentSales();await loadInventory();await loadDashboard();if(canSeeReports())await loadReports();
+ }catch(err){$('void-sale-error').textContent=err.message||'Unable to void this sale.';$('void-sale-error').classList.remove('hidden')}
+ finally{button.disabled=false;button.textContent='Void sale'}
+});
+async function loadRecentSales(){try{const rows=await api('/sales?limit=20');$('recent-sales').innerHTML=rows.length?rows.map(s=>`<div class="border-b border-emerald-950 pb-3"><div class="flex justify-between gap-3"><span class="font-semibold text-sm">${esc(s.customer_name)}</span><span class="font-bold ${s.status==='Voided'?'text-rose-600':'text-emerald-700'}">${s.status==='Voided'?'VOIDED':'USD '+money(s.sale_price)}</span></div><div class="text-xs muted mt-1">${esc(s.chassis_number)} · ${esc(s.sold_by)} · ${esc(String(s.sold_at||'').slice(0,10))} · ${esc(s.commission||'No commission')}</div>${currentUser?.role==='admin'&&s.status!=='Voided'?`<button type="button" class="text-xs text-rose-700 font-bold mt-2" data-void-sale="${s.id}">Void sale</button>`:''}${s.status==='Voided'?`<div class="text-xs text-rose-600 mt-1">Voided by ${esc(s.voided_by||'—')} · ${esc(s.void_reason||'No reason provided')}</div>`:''}</div>`).join(''):'<p class="muted text-sm">No sales recorded yet.</p>';$('recent-sales').querySelectorAll('[data-void-sale]').forEach(btn=>btn.addEventListener('click',()=>openVoidSaleModal(btn.dataset.voidSale,btn)));}catch(e){$('recent-sales').innerHTML=`<p class="text-rose-300 text-sm">${esc(e.message)}</p>`}}
 // 11I2. BOOKINGS: create, list, and cancel active bookings
 let bookingVehicleToSave=null;
 window.openBooking=async encodedVin=>{
