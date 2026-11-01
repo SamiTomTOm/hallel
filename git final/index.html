@@ -2338,5 +2338,32 @@ if(authToken)startApp();else setLoggedIn(false);
  </div>
 </div>
 
+
+<style id="hallel-sidebar-click-repair">
+/* Keep the sidebar and its controls above decorative glass layers. */
+#nav{position:relative;z-index:30;pointer-events:auto!important;isolation:isolate}
+#nav:before{pointer-events:none!important}
+#nav .nav-btn{position:relative;z-index:1;pointer-events:auto!important;cursor:pointer}
+#nav .nav-btn:before{pointer-events:none!important}
+</style>
+<script id="hallel-sidebar-click-repair-js">
+/* Delegated capture handler guarantees sidebar navigation remains active.
+   It replaces the per-button handler for these clicks to avoid double loads. */
+(function(){
+  const sidebar=document.getElementById('nav');
+  if(!sidebar || sidebar.dataset.clickRepairBound==='1') return;
+  sidebar.dataset.clickRepairBound='1';
+  sidebar.addEventListener('click',function(event){
+    const button=event.target.closest('.nav-btn[data-tab]');
+    if(!button || !sidebar.contains(button)) return;
+    if(typeof window.switchTab==='function'){
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.switchTab(button.dataset.tab);
+    }
+  },true);
+})();
+</script>
+
 </body>
 </html>
