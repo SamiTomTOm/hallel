@@ -31,6 +31,11 @@ def migrate_additive_columns():
         "sales": {
             "payment_method": "VARCHAR(20) NOT NULL DEFAULT 'Cash'",
             "bank_name": "VARCHAR(100) NOT NULL DEFAULT ''",
+            "commission": "VARCHAR(20) NOT NULL DEFAULT 'No commission'",
+            "status": "VARCHAR(20) NOT NULL DEFAULT 'Active'",
+            "voided_at": "TIMESTAMP",
+            "voided_by": "VARCHAR(80) NOT NULL DEFAULT ''",
+            "void_reason": "TEXT NOT NULL DEFAULT ''",
         },
     }
     inspector = inspect(engine)
@@ -170,6 +175,11 @@ class SaleCreate(BaseModel):
     sold_by: str = Field(min_length=1, max_length=80)
     notes: str = Field(default="", max_length=2000)
     booking_id: Optional[int] = Field(default=None, ge=1)
+    commission: Literal["With commission", "No commission"] = "No commission"
+
+
+class SaleVoidInput(BaseModel):
+    reason: str = Field(default="", max_length=2000)
 
 
 class BookingCreate(BaseModel):
@@ -577,6 +587,8 @@ def create_sale(
             payment_method=data.payment_method,
             bank_name=data.bank_name.strip() if data.payment_method == "Bank" else "",
             notes=data.notes.strip(),
+            commission=data.commission,
+            status="Active",
         )
         vehicle.status = "Sold"
         if booking:
@@ -587,7 +599,7 @@ def create_sale(
         log_activity(db, user, "VEHICLE_SOLD", "Sale", sale.id, vehicle.chassis_number,
                      f"Sold to {sale.customer_name} for {sale.sale_price}",
                      old_values={"vehicle_status": "Booked" if booking else "In Stock", "booking_status": "Booked" if booking else None},
-                     new_values={"vehicle_status": "Sold", "booking_status": booking.status if booking else None, "sale_price": sale.sale_price, "customer_name": sale.customer_name})
+                     new_values={"vehicle_status": "Sold", "booking_status": booking.status if booking else None, "sale_price": sale.sale_price, "customer_name": sale.customer_name, "commission": sale.commission})
         db.commit()
         db.refresh(sale)
         return {
@@ -613,7 +625,42 @@ def list_sales(limit: int = 200, db: Session = Depends(get_db), user: models.Use
     if user.role == "salesperson":
         query = query.filter(models.Sale.sold_by == user.username)
     rows = query.order_by(models.Sale.sold_at.desc()).limit(limit).all()
-    return [{"id": s.id, "chassis_number": s.chassis_number, "customer_name": s.customer_name, "contact_info": s.contact_info, "sale_price": s.sale_price, "sold_by": s.sold_by, "payment_method": s.payment_method, "bank_name": s.bank_name, "sold_at": s.sold_at.isoformat(), "notes": s.notes} for s in rows]
+    return [{"id": s.id, "chassis_number": s.chassis_number, "customer_name": s.customer_name, "contact_info": s.contact_info, "sale_price": s.sale_price, "sold_by": s.sold_by, "payment_method": s.payment_method, "bank_name": s.bank_name, "sold_at": s.sold_at.isoformat(), "notes": s.notes, "commission": s.commission or "No commission", "status": s.status or "Active", "voided_at": s.voided_at.isoformat() if s.voided_at else None, "voided_by": s.voided_by, "void_reason": s.void_reason} for s in rows]
+
+
+@app.post("/sales/{sale_id}/void")
+def void_sale(sale_id: int, data: SaleVoidInput, db: Session = Depends(get_db),
+              user: models.User = Depends(require_roles("admin"))):
+    """Void a sale without deleting its history; restore its vehicle only when safe."""
+    try:
+        sale = db.query(models.Sale).filter(models.Sale.id == sale_id).with_for_update().first()
+        if not sale:
+            raise HTTPException(status_code=404, detail="Sale not found.")
+        if sale.status == "Voided":
+            raise HTTPException(status_code=409, detail="This sale has already been voided.")
+        vehicle = db.query(models.Vehicle).filter(models.Vehicle.chassis_number == sale.chassis_number).with_for_update().first()
+        if not vehicle:
+            raise HTTPException(status_code=409, detail="The vehicle record is missing; sale was not changed.")
+        if vehicle.status != "Sold":
+            raise HTTPException(status_code=409, detail=f"Vehicle status is '{vehicle.status}', not Sold. Sale was not voided.")
+        old_values = {"sale_status": sale.status or "Active", "vehicle_status": vehicle.status}
+        sale.status = "Voided"
+        sale.voided_at = datetime.utcnow()
+        sale.voided_by = user.username
+        sale.void_reason = data.reason.strip()
+        vehicle.status = "In Stock"
+        log_activity(db, user, "SALE_VOIDED", "Sale", sale.id, sale.chassis_number,
+                     f"Voided sale #{sale.id}" + (f": {sale.void_reason}" if sale.void_reason else ""),
+                     old_values=old_values,
+                     new_values={"sale_status": "Voided", "vehicle_status": "In Stock", "voided_by": user.username, "reason": sale.void_reason})
+        db.commit()
+        return {"message": "Sale voided. Vehicle returned to In Stock.", "sale_id": sale.id}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
 @app.post("/bookings", status_code=201)
 def create_booking(
@@ -878,10 +925,16 @@ def reports_summary(db: Session = Depends(get_db), user: models.User = Depends(r
     total = db.query(models.Vehicle).count()
     in_stock = db.query(models.Vehicle).filter(models.Vehicle.status == "In Stock").count()
     sold = db.query(models.Vehicle).filter(models.Vehicle.status == "Sold").count()
-    by_seller = db.query(models.Sale.sold_by, func.count(models.Sale.id).label("units_sold"), func.coalesce(func.sum(models.Sale.sale_price), 0).label("revenue")).group_by(models.Sale.sold_by).order_by(func.count(models.Sale.id).desc()).all()
+    active_sales = db.query(models.Sale).filter(models.Sale.status != "Voided")
+    by_seller = db.query(models.Sale.sold_by, func.count(models.Sale.id).label("units_sold"), func.coalesce(func.sum(models.Sale.sale_price), 0).label("revenue")).filter(models.Sale.status != "Voided").group_by(models.Sale.sold_by).order_by(func.count(models.Sale.id).desc()).all()
+    commission_by_seller = db.query(models.Sale.sold_by, func.count(models.Sale.id)).filter(models.Sale.status != "Voided", models.Sale.commission == "With commission").group_by(models.Sale.sold_by).all()
     by_store = db.query(models.Vehicle.store, func.count(models.Vehicle.id).label("vehicles")).filter(models.Vehicle.status == "In Stock").group_by(models.Vehicle.store).all()
-    recent_sales = db.query(models.Sale).order_by(models.Sale.sold_at.desc()).limit(10).all()
-    return {"total_inventory": total, "in_stock": in_stock, "sold": sold, "by_seller": [{"sold_by": row[0], "units_sold": row[1], "revenue": float(row[2] or 0)} for row in by_seller], "by_store": [{"store": row[0], "vehicles": row[1]} for row in by_store], "recent_sales": [{"chassis_number": s.chassis_number, "customer_name": s.customer_name, "sale_price": s.sale_price, "sold_by": s.sold_by, "payment_method": s.payment_method, "bank_name": s.bank_name, "sold_at": s.sold_at.isoformat()} for s in recent_sales]}
+    recent_sales = active_sales.order_by(models.Sale.sold_at.desc()).limit(10).all()
+    return {"total_inventory": total, "in_stock": in_stock, "sold": sold,
+            "by_seller": [{"sold_by": row[0], "units_sold": row[1], "revenue": float(row[2] or 0),
+                           "commission_sales": next((c[1] for c in commission_by_seller if c[0] == row[0]), 0)} for row in by_seller],
+            "by_store": [{"store": row[0], "vehicles": row[1]} for row in by_store],
+            "recent_sales": [{"chassis_number": s.chassis_number, "customer_name": s.customer_name, "sale_price": s.sale_price, "sold_by": s.sold_by, "payment_method": s.payment_method, "bank_name": s.bank_name, "commission": s.commission, "sold_at": s.sold_at.isoformat()} for s in recent_sales]}
 
 @app.get("/reports/stock")
 def stock_report(db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management", "stock_manager"))):

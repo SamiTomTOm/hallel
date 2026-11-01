@@ -70,6 +70,11 @@ class Sale(Base):
         index=True,
     )
     notes = Column(Text, nullable=False, default="")
+    commission = Column(String(20), nullable=False, default="No commission")
+    status = Column(String(20), nullable=False, default="Active", index=True)
+    voided_at = Column(DateTime, nullable=True)
+    voided_by = Column(String(80), nullable=False, default="")
+    void_reason = Column(Text, nullable=False, default="")
 
     vehicle = relationship("Vehicle")
 
