@@ -158,3 +158,37 @@ class ActivityLog(Base):
     old_values = Column(Text, nullable=False, default="{}")
     new_values = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
+class TelegramGroup(Base):
+    """A Telegram group the bot listens to (added from the Staff accounts page or with /connect)."""
+
+    __tablename__ = "telegram_groups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chat_id = Column(String(40), unique=True, nullable=False, index=True)
+    title = Column(String(150), nullable=False, default="")
+    added_by = Column(String(80), nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class TelegramLink(Base):
+    """Links one Telegram account to one system user."""
+
+    __tablename__ = "telegram_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    telegram_id = Column(String(40), unique=True, nullable=False, index=True)
+    username = Column(String(80), nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class TelegramLinkCode(Base):
+    """A short-lived code an admin generates; the staff member sends /link CODE to the bot."""
+
+    __tablename__ = "telegram_link_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(12), unique=True, nullable=False, index=True)
+    username = Column(String(80), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
