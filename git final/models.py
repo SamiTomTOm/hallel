@@ -165,6 +165,23 @@ class ActivityLog(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
+class Notification(Base):
+    """Persistent in-app notification delivered to an individual active user."""
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    recipient_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    actor_username = Column(String(80), nullable=False, default="")
+    event_type = Column(String(30), nullable=False, index=True)  # sale / booking
+    title = Column(String(150), nullable=False)
+    message = Column(Text, nullable=False, default="")
+    entity_type = Column(String(30), nullable=False, default="")
+    entity_id = Column(String(80), nullable=False, default="")
+    chassis_number = Column(String(80), nullable=False, default="", index=True)
+    is_read = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
 class TelegramGroup(Base):
     """A Telegram group the bot listens to (added from the Staff accounts page or with /connect)."""
 

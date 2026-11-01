@@ -521,6 +521,69 @@ def update_inventory(chassis_number: str, data: VehicleUpdate, db: Session = Dep
     db.refresh(v)
     return vehicle_dict(v)
 
+def create_event_notifications(db: Session, actor: models.User, event_type: str, title: str,
+                               message: str, entity_type: str, entity_id: str, chassis_number: str):
+    """Notify every other active staff account; caller commits with the business event."""
+    recipients = db.query(models.User).filter(
+        models.User.is_active.is_(True), models.User.id != actor.id
+    ).all()
+    for recipient in recipients:
+        db.add(models.Notification(
+            recipient_user_id=recipient.id,
+            actor_username=actor.username,
+            event_type=event_type,
+            title=title,
+            message=message,
+            entity_type=entity_type,
+            entity_id=str(entity_id),
+            chassis_number=(chassis_number or "").upper(),
+            is_read=False,
+        ))
+
+
+@app.get("/notifications")
+def list_notifications(limit: int = 30, db: Session = Depends(get_db),
+                       user: models.User = Depends(get_current_user)):
+    limit = max(1, min(limit, 100))
+    query = db.query(models.Notification).filter(models.Notification.recipient_user_id == user.id)
+    unread_count = query.filter(models.Notification.is_read.is_(False)).count()
+    rows = query.order_by(models.Notification.created_at.desc()).limit(limit).all()
+    return {
+        "unread_count": unread_count,
+        "notifications": [{
+            "id": n.id, "actor_username": n.actor_username, "event_type": n.event_type,
+            "title": n.title, "message": n.message, "entity_type": n.entity_type,
+            "entity_id": n.entity_id, "chassis_number": n.chassis_number,
+            "is_read": n.is_read, "created_at": n.created_at.isoformat() if n.created_at else None,
+        } for n in rows]
+    }
+
+
+@app.patch("/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: int, db: Session = Depends(get_db),
+                           user: models.User = Depends(get_current_user)):
+    row = db.query(models.Notification).filter(
+        models.Notification.id == notification_id,
+        models.Notification.recipient_user_id == user.id,
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Notification not found.")
+    row.is_read = True
+    db.commit()
+    return {"message": "Notification marked as read."}
+
+
+@app.post("/notifications/read-all")
+def mark_all_notifications_read(db: Session = Depends(get_db),
+                                user: models.User = Depends(get_current_user)):
+    db.query(models.Notification).filter(
+        models.Notification.recipient_user_id == user.id,
+        models.Notification.is_read.is_(False),
+    ).update({models.Notification.is_read: True}, synchronize_session=False)
+    db.commit()
+    return {"message": "All notifications marked as read."}
+
+
 @app.post("/sales", status_code=201)
 def create_sale(
     data: SaleCreate,
@@ -600,6 +663,11 @@ def create_sale(
                      f"Sold to {sale.customer_name} for {sale.sale_price}",
                      old_values={"vehicle_status": "Booked" if booking else "In Stock", "booking_status": "Booked" if booking else None},
                      new_values={"vehicle_status": "Sold", "booking_status": booking.status if booking else None, "sale_price": sale.sale_price, "customer_name": sale.customer_name, "commission": sale.commission})
+        create_event_notifications(
+            db, user, "sale", "New vehicle sale",
+            f"{sale.customer_name} · {vehicle.brand} {vehicle.model} · {vehicle.chassis_number[-4:]} · {sale.sold_by}",
+            "Sale", sale.id, vehicle.chassis_number,
+        )
         db.commit()
         db.refresh(sale)
         return {
@@ -703,6 +771,11 @@ def create_booking(
     log_activity(db, user, "VEHICLE_BOOKED", "Booking", booking.id, vehicle.chassis_number,
                  f"Booked for {booking.customer_name}", old_values={"vehicle_status": "In Stock"},
                  new_values={"vehicle_status": "Booked", "customer_name": booking.customer_name, "booked_by": booking.booked_by, "booking_amount": booking.booking_amount})
+    create_event_notifications(
+        db, user, "booking", "New vehicle booking",
+        f"{booking.customer_name} · {vehicle.brand} {vehicle.model} · {vehicle.chassis_number[-4:]} · {booking.booked_by}",
+        "Booking", booking.id, vehicle.chassis_number,
+    )
     db.commit()
     db.refresh(booking)
 
