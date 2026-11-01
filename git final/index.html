@@ -2353,5 +2353,71 @@ if(authToken)startApp();else setLoggedIn(false);
 })();
 </script>
 
+
+<style id="hallel-sidebar-alignment-auto-refresh">
+/* Align the sidebar with the top of the workspace, not 100px below it. */
+#app main{align-items:start!important}
+#app main #nav{
+  align-self:start!important;
+  grid-row:1 / span 12!important;
+  top:16px!important;
+  margin-top:0!important;
+  transform:none!important;
+}
+/* Refresh is automatic; keep legacy controls in the DOM for compatibility. */
+#tab-dashboard button[onclick="loadDashboard()"],
+#refresh-inventory,
+#refresh-bookings,
+#tab-activity button[onclick="loadActivityLogs()"],
+#wl-refresh{display:none!important}
+</style>
+<script id="hallel-auto-refresh">
+(function(){
+  const REFRESH_EVERY_MS = 60000; // refresh the active workspace once per minute
+  let refreshBusy = false;
+
+  function activeTab(){
+    const active = document.querySelector('#nav .nav-btn.nav-active[data-tab]');
+    return active ? active.dataset.tab : 'dashboard';
+  }
+
+  function userIsEditing(){
+    const el = document.activeElement;
+    if (!el) return false;
+    if (el.matches('input,textarea,select,[contenteditable="true"]')) return true;
+    // Never refresh underneath an open modal or unsaved form.
+    return !!document.querySelector('.hal-modal:not(.hidden), .modal:not(.hidden)');
+  }
+
+  async function refreshActiveWorkspace(){
+    if (refreshBusy || document.visibilityState !== 'visible' || userIsEditing()) return;
+    if (typeof window.api !== 'function') return;
+    const tab = activeTab();
+    refreshBusy = true;
+    try {
+      switch(tab){
+        case 'dashboard': if(typeof window.loadDashboard==='function') await window.loadDashboard(); break;
+        case 'inventory': if(typeof window.loadInventory==='function') await window.loadInventory(); break;
+        case 'sales': if(typeof window.loadRecentSales==='function') await window.loadRecentSales(); break;
+        case 'bookings': if(typeof window.loadBookings==='function') await window.loadBookings(); break;
+        case 'transfers': if(typeof window.loadRecentTransfers==='function') await window.loadRecentTransfers(); break;
+        case 'reports': if(typeof window.loadReports==='function') await window.loadReports(); break;
+        case 'activity': if(typeof window.loadActivityLogs==='function') await window.loadActivityLogs(); break;
+        case 'users': if(typeof window.loadUsers==='function') await window.loadUsers(); break;
+        case 'waitlist': if(typeof window.openWaitlistTab==='function') await window.openWaitlistTab(); break;
+      }
+    } catch(err){ console.warn('Automatic refresh skipped:', err); }
+    finally { refreshBusy = false; }
+  }
+
+  // Expose for optional manual diagnostics; the visible refresh buttons stay removed.
+  window.hallelRefreshActiveWorkspace = refreshActiveWorkspace;
+  setInterval(refreshActiveWorkspace, REFRESH_EVERY_MS);
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible') refreshActiveWorkspace();
+  });
+})();
+</script>
+
 </body>
 </html>
