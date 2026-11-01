@@ -3,7 +3,6 @@ import hashlib
 import time
 from datetime import datetime, timedelta
 from typing import Optional, Literal
-from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -412,13 +411,6 @@ def cloudinary_profile_signature(user: models.User = Depends(get_current_user)):
     cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
     api_key = os.getenv("CLOUDINARY_API_KEY", "").strip()
     api_secret = os.getenv("CLOUDINARY_API_SECRET", "").strip()
-    # Also accept the single CLOUDINARY_URL format configured for this project.
-    cloudinary_url = os.getenv("CLOUDINARY_URL", "").strip()
-    if cloudinary_url and not all((cloud_name, api_key, api_secret)):
-        parsed = urlsplit(cloudinary_url)
-        cloud_name = cloud_name or (parsed.hostname or "")
-        api_key = api_key or (parsed.username or "")
-        api_secret = api_secret or (parsed.password or "")
     if not all((cloud_name, api_key, api_secret)):
         raise HTTPException(status_code=503, detail="Cloudinary is not configured on the server.")
     timestamp = int(time.time())
@@ -955,6 +947,11 @@ def create_transfer(data: TransferCreate, db: Session = Depends(get_db), user: m
     log_activity(db, user, "VEHICLE_TRANSFERRED", "Transfer", transfer.id, v.chassis_number,
                  f"Transferred from {transfer.from_store} to {transfer.to_store}",
                  old_values={"store": transfer.from_store}, new_values={"store": transfer.to_store})
+    create_event_notifications(
+        db, user, "transfer", "Vehicle branch transfer",
+        f"{v.brand} {v.model} · {v.chassis_number[-4:]} · {transfer.from_store} → {transfer.to_store} · {user.username}",
+        "Transfer", transfer.id, v.chassis_number,
+    )
     db.commit()
     db.refresh(transfer)
     return {"message": "Branch transfer recorded successfully.", "transfer_id": transfer.id, "chassis_number": transfer.chassis_number, "current_store": v.store, "transferred_at": transfer.transferred_at.isoformat()}
