@@ -43,21 +43,64 @@ FALLBACK_STAFF = "327504061:admin"   # e.g. "111222333:abel,444555666:sara"
 
 def _token(): return os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or FALLBACK_TOKEN.strip()
 def _group(): return os.getenv("TELEGRAM_GROUP_ID", "").strip() or FALLBACK_GROUP_ID.strip()
+def _groups_fallback() -> set:
+    """One or many group ids, separated by commas: "-100111,-100222"."""
+    return {g.strip() for g in _group().split(",") if g.strip()}
+def _groups() -> set: return groups_all()
 def _api_base(): return os.getenv("TELEGRAM_API_BASE", "https://api.telegram.org").rstrip("/")
 
 
+def _db():
+    from database import SessionLocal
+    return SessionLocal()
+
+
 def staff_map() -> dict:
+    """telegram id -> system username. Links made on the Staff accounts page win over the fallback list."""
     out = {}
     for part in (os.getenv("TELEGRAM_STAFF", "") or FALLBACK_STAFF).split(","):
         if ":" in part:
             tid, name = part.split(":", 1)
             if tid.strip() and name.strip():
                 out[tid.strip()] = name.strip()
+    try:
+        import models
+        db = _db()
+        try:
+            for r in db.query(models.TelegramLink).all(): out[r.telegram_id] = r.username
+        finally: db.close()
+    except Exception as e:
+        print(f"[telegram-bot] could not read links: {e}", flush=True)
     return out
 
 
+def groups_all() -> set:
+    out = set(_groups_fallback())
+    try:
+        import models
+        db = _db()
+        try:
+            for r in db.query(models.TelegramGroup).all(): out.add(r.chat_id)
+        finally: db.close()
+    except Exception as e:
+        print(f"[telegram-bot] could not read groups: {e}", flush=True)
+    return out
+
+
+def _role_of(username: str) -> str:
+    try:
+        import models
+        db = _db()
+        try:
+            u = db.query(models.User).filter(models.User.username == username, models.User.is_active == True).first()
+            return u.role if u else ""
+        finally: db.close()
+    except Exception:
+        return ""
+
+
 def configured() -> bool:
-    return bool(_token() and _group() and staff_map())
+    return bool(_token() and groups_all() and staff_map())
 
 
 def status() -> dict:
@@ -207,6 +250,62 @@ HELP = ("Hallel Inventory bot\n\nPost the receipt photo with this caption (as yo
 
 
 # ------------------------------------------------------------------ update handling
+def _vanish(chat_id, ids, delay=None):
+    time.sleep(float(os.getenv("MYID_SECONDS", "8")) if delay is None else delay)
+    for mid in ids:
+        if mid:
+            try: _call("deleteMessage", {"chat_id": chat_id, "message_id": mid})
+            except Exception: pass
+
+
+def _cmd_link(msg, chat_id, sid, text):
+    parts = text.split()
+    code = parts[1].strip() if len(parts) > 1 else ""
+    r = None
+    try:
+        import models
+        from datetime import datetime
+        db = _db()
+        try:
+            row = db.query(models.TelegramLinkCode).filter(models.TelegramLinkCode.code == code).first() if code else None
+            if not row or row.expires_at < datetime.utcnow():
+                r = _say(chat_id, "That code is wrong or expired. Ask the admin for a new one (Staff accounts page).", msg.get("message_id"))
+            else:
+                link = db.query(models.TelegramLink).filter(models.TelegramLink.telegram_id == sid).first()
+                if link: link.username = row.username
+                else: db.add(models.TelegramLink(telegram_id=sid, username=row.username))
+                name = row.username
+                db.delete(row); db.commit()
+                r = _say(chat_id, f"Linked. Your Telegram is now connected to the system user '{name}'.", msg.get("message_id"))
+        finally: db.close()
+    except Exception as e:
+        r = _say(chat_id, f"Could not link: {e}", msg.get("message_id"))
+    _vanish(chat_id, [((r or {}).get("result") or {}).get("message_id"), msg.get("message_id")])
+
+
+def _cmd_connect(msg, chat_id, sid):
+    r = None
+    if not chat_id.startswith("-"):
+        r = _say(chat_id, "Send /connect inside the group you want to connect.", msg.get("message_id"))
+    else:
+        user = staff_map().get(sid)
+        if not user or _role_of(user) != "admin":
+            r = _say(chat_id, "Only a linked administrator can connect a group.", msg.get("message_id"))
+        else:
+            try:
+                import models
+                db = _db()
+                try:
+                    if not db.query(models.TelegramGroup).filter(models.TelegramGroup.chat_id == chat_id).first():
+                        db.add(models.TelegramGroup(chat_id=chat_id, title=(msg.get("chat", {}).get("title") or "")[:150], added_by=user))
+                        db.commit()
+                finally: db.close()
+                r = _say(chat_id, "This group is now connected. Staff can post sales and bookings here.", msg.get("message_id"))
+            except Exception as e:
+                r = _say(chat_id, f"Could not connect this group: {e}", msg.get("message_id"))
+    _vanish(chat_id, [((r or {}).get("result") or {}).get("message_id"), msg.get("message_id")])
+
+
 def _handle_message(msg: dict, find_vehicle, execute):
     chat = msg.get("chat", {})
     chat_id = str(chat.get("id", ""))
@@ -217,8 +316,18 @@ def _handle_message(msg: dict, find_vehicle, execute):
     cmd = text.split()[0].lower().split("@")[0]
 
     if cmd == "/myid":
-        _say(chat_id, f"Your Telegram id: {sid}\nThis chat id: {chat_id}", msg.get("message_id")); return
-    if chat_id != _group():
+        r = _say(chat_id, f"Your Telegram id: {sid}\nThis chat id: {chat_id}\n(this message deletes itself in a few seconds)", msg.get("message_id"))
+        time.sleep(float(os.getenv("MYID_SECONDS", "8")))
+        for mid in (((r or {}).get("result") or {}).get("message_id"), msg.get("message_id")):
+            if mid:
+                try: _call("deleteMessage", {"chat_id": chat_id, "message_id": mid})
+                except Exception: pass
+        return
+    if cmd == "/link":
+        _cmd_link(msg, chat_id, sid, text); return
+    if cmd == "/connect":
+        _cmd_connect(msg, chat_id, sid); return
+    if chat_id not in _groups():
         print(f"[telegram-bot] ignored a message from chat {chat_id} (TELEGRAM_GROUP_ID is {_group()!r})", flush=True)
         return  # ignore every other chat
     if cmd in ("/help", "/start"):
@@ -254,7 +363,11 @@ def _handle_callback(cb: dict, find_vehicle, execute):
         try: _call("editMessageText", {"chat_id": chat_id, "message_id": mid, "text": t})
         except Exception as e: _state["last_error"] = f"edit failed: {e}"
 
-    if str(chat_id) != _group(): return
+    def remove():
+        try: _call("deleteMessage", {"chat_id": chat_id, "message_id": mid})
+        except Exception: edit("Done.")  # no permission to delete: at least clear the buttons
+
+    if str(chat_id) not in _groups(): return
     if sid != owner:
         answer("Only the person who sent it can do this."); return
     user = staff_map().get(sid)
@@ -265,13 +378,15 @@ def _handle_callback(cb: dict, find_vehicle, execute):
     if time.time() - int(msg.get("date", 0) or 0) > PENDING_TTL * 6:
         answer("Expired"); edit("Expired. Please send the message again."); return
     if act != "y":
-        answer("Cancelled"); edit("Cancelled. Nothing was saved."); return
+        answer("Cancelled"); remove(); return
     p = parse(text, find_vehicle)
     if not p or "error" in p:
         answer("Not saved"); edit("NOT SAVED\n" + (p or {}).get("error", "Could not read the message.")); return
     ok, message = execute(p["kind"], user, p)
     _state["handled"] += 1 if ok else 0
-    answer("Saved" if ok else "Not saved")
+    answer(message if ok else "Not saved")
+    if ok:
+        remove(); return  # success: the summary disappears; failures stay visible with the reason
     head = _describe(p).split("\n")[0]
     edit((f"SAVED - {head.title()} recorded\n" if ok else "NOT SAVED\n") + _describe(p) + f"\nBy: {user}\n\n{message}")
 
@@ -328,7 +443,7 @@ def start(find_vehicle, execute) -> bool:
     if not _token():
         print("[telegram-bot] NOT started. TELEGRAM_BOT_TOKEN is missing in .env", flush=True)
         return False
-    miss = [n for n, v in (("TELEGRAM_GROUP_ID", _group()), ("TELEGRAM_STAFF", staff_map())) if not v]
+    miss = []
     if miss:
         print("[telegram-bot] running in setup mode (only /myid works). Still missing in .env: " + ", ".join(miss), flush=True)
     if os.getenv("VERCEL"):
