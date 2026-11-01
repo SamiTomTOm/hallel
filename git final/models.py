@@ -14,6 +14,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False, default="salesperson")
     is_active = Column(Boolean, nullable=False, default=True)
+    profile_image_url = Column(Text, nullable=False, default="")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
