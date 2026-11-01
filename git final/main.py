@@ -1,4 +1,6 @@
 import os
+import hashlib
+import time
 from datetime import datetime, timedelta
 from typing import Optional, Literal
 
@@ -24,6 +26,9 @@ Base.metadata.create_all(bind=engine)
 def migrate_additive_columns():
     """Add new optional/defaulted columns to existing databases without deleting data."""
     additions = {
+        "users": {
+            "profile_image_url": "TEXT NOT NULL DEFAULT ''",
+        },
         "inventory": {
             "has_accessories": "BOOLEAN NOT NULL DEFAULT FALSE",
             "customer_name": "VARCHAR(150) NOT NULL DEFAULT ''",
@@ -395,7 +400,47 @@ def login(data: LoginInput, db: Session = Depends(get_db)):
 
 @app.get("/auth/me")
 def who_am_i(user: models.User = Depends(get_current_user)):
-    return {"username": user.username, "role": user.role, "is_active": user.is_active}
+    return {"username": user.username, "role": user.role, "is_active": user.is_active, "profile_image_url": user.profile_image_url or ""}
+
+class ProfileUpdate(BaseModel):
+    username: str = Field(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
+    profile_image_url: Optional[str] = Field(default=None, max_length=1000)
+
+@app.post("/auth/profile/signature")
+def cloudinary_profile_signature(user: models.User = Depends(get_current_user)):
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
+    api_key = os.getenv("CLOUDINARY_API_KEY", "").strip()
+    api_secret = os.getenv("CLOUDINARY_API_SECRET", "").strip()
+    if not all((cloud_name, api_key, api_secret)):
+        raise HTTPException(status_code=503, detail="Cloudinary is not configured on the server.")
+    timestamp = int(time.time())
+    folder = "hallel/profiles"
+    public_id = f"user_{user.id}"
+    params = f"folder={folder}&public_id={public_id}&timestamp={timestamp}"
+    signature = hashlib.sha1((params + api_secret).encode("utf-8")).hexdigest()
+    return {"cloud_name": cloud_name, "api_key": api_key, "timestamp": timestamp, "folder": folder, "public_id": public_id, "signature": signature}
+
+@app.patch("/auth/profile")
+def update_profile(data: ProfileUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    new_username = data.username.strip()
+    if not new_username:
+        raise HTTPException(status_code=422, detail="Username is required.")
+    duplicate = db.query(models.User).filter(models.User.username == new_username, models.User.id != user.id).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="That username is already in use. Please choose another.")
+    if data.profile_image_url is not None:
+        url = data.profile_image_url.strip()
+        if url and (not url.startswith("https://res.cloudinary.com/") or "/image/upload/" not in url):
+            raise HTTPException(status_code=400, detail="Please provide a valid Cloudinary image URL.")
+        user.profile_image_url = url
+    user.username = new_username
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="That username is already in use.")
+    return {"username": user.username, "role": user.role, "profile_image_url": user.profile_image_url or "", "access_token": create_token(user), "token_type": "bearer"}
 
 @app.post("/auth/users", status_code=201)
 def create_user(data: UserCreate, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin"))):
