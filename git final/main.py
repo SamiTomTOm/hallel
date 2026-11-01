@@ -936,6 +936,44 @@ def reports_summary(db: Session = Depends(get_db), user: models.User = Depends(r
             "by_store": [{"store": row[0], "vehicles": row[1]} for row in by_store],
             "recent_sales": [{"chassis_number": s.chassis_number, "customer_name": s.customer_name, "sale_price": s.sale_price, "sold_by": s.sold_by, "payment_method": s.payment_method, "bank_name": s.bank_name, "commission": s.commission, "sold_at": s.sold_at.isoformat()} for s in recent_sales]}
 
+@app.get("/reports/commission")
+def commission_report(month: str, db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management"))):
+    """Commission-eligible sale counts and sale values for a selected calendar month.
+
+    Commission is currently a yes/no flag, not a monetary payout amount.
+    """
+    import re
+    if not re.fullmatch(r"\d{4}-\d{2}", month):
+        raise HTTPException(status_code=400, detail="Month must use YYYY-MM format.")
+    try:
+        start = datetime.strptime(month, "%Y-%m")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid reporting month.")
+    end = datetime(start.year + (1 if start.month == 12 else 0), 1 if start.month == 12 else start.month + 1, 1)
+    rows = db.query(
+        models.Sale.sold_by,
+        func.count(models.Sale.id).label("commission_sales"),
+        func.coalesce(func.sum(models.Sale.sale_price), 0).label("commission_sale_value"),
+    ).filter(
+        models.Sale.status != "Voided",
+        models.Sale.commission == "With commission",
+        models.Sale.sold_at >= start,
+        models.Sale.sold_at < end,
+    ).group_by(models.Sale.sold_by).order_by(func.count(models.Sale.id).desc()).all()
+    total_count = sum(int(row[1] or 0) for row in rows)
+    total_value = sum(float(row[2] or 0) for row in rows)
+    return {
+        "month": month,
+        "total_commission_sales": total_count,
+        "total_commission_sale_value": total_value,
+        "by_salesperson": [
+            {"sold_by": row[0], "commission_sales": int(row[1] or 0), "commission_sale_value": float(row[2] or 0)}
+            for row in rows
+        ],
+        "note": "Counts and sale values for sales marked With commission; this is not a commission payout calculation."
+    }
+
+
 @app.get("/reports/stock")
 def stock_report(db: Session = Depends(get_db), user: models.User = Depends(require_roles("admin", "management", "stock_manager"))):
     rows = db.query(models.Vehicle.store, models.Vehicle.status, func.count(models.Vehicle.id)).group_by(models.Vehicle.store, models.Vehicle.status).all()
