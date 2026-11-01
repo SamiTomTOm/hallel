@@ -940,7 +940,23 @@ async function loadNotifications(){if(!authToken)return;try{const payload=await 
 function closeNotificationPanel(){$('notification-panel').classList.add('hidden');$('notification-bell').setAttribute('aria-expanded','false')}
 $('notification-bell').addEventListener('click',async e=>{e.stopPropagation();const panel=$('notification-panel');const opening=panel.classList.contains('hidden');panel.classList.toggle('hidden');$('notification-bell').setAttribute('aria-expanded',String(opening));if(opening){notificationBadgeDismissed=true;$('notification-badge').classList.add('hidden');await loadNotifications()}});
 $('notification-panel').addEventListener('click',e=>e.stopPropagation());
-document.addEventListener('click',e=>{if(!$('notification-area').contains(e.target))closeNotificationPanel()});
+// Close either dropdown immediately when the user clicks anywhere outside it.
+// Clicking the other header control also closes the currently open dropdown.
+document.addEventListener('pointerdown',e=>{
+  const target=e.target;
+  const inNotifications=$('notification-area').contains(target);
+  const inProfile=$('profile-area').contains(target);
+  if(!inNotifications)closeNotificationPanel();
+  if(!inProfile){$('profile-dropdown').classList.add('hidden');$('profile-menu-toggle').setAttribute('aria-expanded','false');}
+},{capture:true});
+// Keep Escape behavior consistent for both header menus.
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    closeNotificationPanel();
+    $('profile-dropdown').classList.add('hidden');
+    $('profile-menu-toggle').setAttribute('aria-expanded','false');
+  }
+});
 document.querySelectorAll('[data-notification-filter]').forEach(tab=>tab.addEventListener('click',()=>{activeNotificationFilter=tab.dataset.notificationFilter;renderNotifications({notifications:notificationRows,unread_count:lastNotificationUnreadCount||0})}));
 $('notifications-read-all').addEventListener('click',async()=>{try{await api('/notifications/read-all',{method:'POST'});notificationBadgeDismissed=false;await loadNotifications()}catch(e){notify(e.message,true)}});
 $('notifications-view-all').addEventListener('click',()=>{closeNotificationPanel();if(document.querySelector('[data-tab="activity"]'))switchTab('activity');else if(document.querySelector('[data-tab="reports"]')&&canSeeReports())switchTab('reports');else notify('Your notifications are shown in this dropdown.')});
@@ -953,7 +969,7 @@ $('logout-btn').addEventListener('click',()=>logout());
 
 $('profile-menu-toggle').addEventListener('click',e=>{e.stopPropagation();const menu=$('profile-dropdown');const open=menu.classList.contains('hidden');menu.classList.toggle('hidden');$('profile-menu-toggle').setAttribute('aria-expanded',String(open));});
 $('profile-dropdown').addEventListener('click',e=>e.stopPropagation());
-document.addEventListener('click',e=>{if(!$('profile-area').contains(e.target)){$('profile-dropdown').classList.add('hidden');$('profile-menu-toggle').setAttribute('aria-expanded','false')}});
+
 function closeProfileModal(){$('profile-edit-modal').classList.add('hidden');$('profile-edit-modal').classList.remove('flex');$('profile-upload-error').classList.add('hidden');$('profile-image-input').value=''}
 $('edit-profile-btn').addEventListener('click',()=>{$('profile-dropdown').classList.add('hidden');$('profile-menu-toggle').setAttribute('aria-expanded','false');$('profile-username-input').value=currentUser.username||'';const existing=currentUser.profile_image_url||'';if(existing){$('profile-preview').src=existing;$('profile-preview').classList.remove('hidden');$('profile-preview-fallback').classList.add('hidden')}else{$('profile-preview').classList.add('hidden');$('profile-preview-fallback').classList.remove('hidden')} $('profile-edit-modal').classList.remove('hidden');$('profile-edit-modal').classList.add('flex');setTimeout(()=>$('profile-username-input').focus(),50)});
 $('profile-modal-close').addEventListener('click',closeProfileModal);$('profile-modal-cancel').addEventListener('click',closeProfileModal);
