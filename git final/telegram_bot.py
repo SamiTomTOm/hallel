@@ -37,8 +37,8 @@ _state = {"running": False, "last_error": "", "handled": 0}
 # Fallback values, used only when the host has no environment variable set.
 # ONLY fill these in if your GitHub repository is PRIVATE; otherwise anyone can take over the bot.
 FALLBACK_TOKEN = "9221246170:AAEhnRl9vxtYbWfe4oJ9Ev3mrx9ddNzyQuw"   # e.g. "123456:ABC..."
-FALLBACK_GROUP_ID = ""  # e.g. "-1001234567890"
-FALLBACK_STAFF = ""   # e.g. "111222333:abel,444555666:sara"
+FALLBACK_GROUP_ID = "-1003650826154"  # e.g. "-1001234567890"
+FALLBACK_STAFF = "327504061:admin"   # e.g. "111222333:abel,444555666:sara"
 
 
 def _token(): return os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or FALLBACK_TOKEN.strip()
