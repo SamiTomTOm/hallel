@@ -983,6 +983,20 @@ body{background-attachment:fixed!important}
   </form>
  </div>
 </div>
+<!-- Unbook modal: same Hallel modal design as the void-sale modal. -->
+<div id="unbook-modal" class="hal-modal" role="dialog" aria-modal="true" aria-labelledby="unbook-title">
+ <div class="hal-modal-card" style="width:min(520px,100%)">
+  <div class="flex items-start justify-between gap-4 mb-5">
+   <div><p class="text-xs uppercase tracking-widest font-bold" style="color:#b42318">BOOKING MANAGEMENT</p><h2 id="unbook-title" class="text-2xl font-black mt-1">Unbook vehicle</h2><p class="muted text-sm mt-1">The vehicle will return to In Stock. The booking record will be preserved.</p></div>
+   <button type="button" id="unbook-close" class="btn btn-dark" aria-label="Close unbook form">✕</button>
+  </div>
+  <div class="rounded-xl border p-3 mb-4" style="background:#fff8f7;border-color:#f2d5d1">
+   <div class="text-xs muted">Booking being cancelled</div><div id="unbook-customer" class="font-bold mt-1">—</div><div id="unbook-vin" class="text-sm mt-1">—</div>
+  </div>
+  <input type="hidden" id="unbook-id">
+  <div class="flex flex-wrap justify-end gap-2 pt-2"><button type="button" id="unbook-cancel" class="btn btn-dark">Keep booking</button><button type="button" id="unbook-confirm" class="btn" style="background:#b42318;color:#fff">Unbook</button></div>
+ </div>
+</div>
 <!-- Sale void modal: follows the existing Hallel modal design. -->
 <div id="void-sale-modal" class="hal-modal" role="dialog" aria-modal="true" aria-labelledby="void-sale-title">
  <div class="hal-modal-card" style="width:min(520px,100%)">
@@ -1240,7 +1254,7 @@ $('vehicle-info-content').innerHTML=vehicleHtml+saleHtml+`<div class=\"pt-3\"><b
 $('vehicle-info-close').addEventListener('click',()=>hideHalModal('vehicle-info-modal'));
 $('vehicle-info-done').addEventListener('click',()=>hideHalModal('vehicle-info-modal'));
 $('vehicle-info-modal').addEventListener('click',e=>{if(e.target===$('vehicle-info-modal'))hideHalModal('vehicle-info-modal')});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideHalModal('inventory-edit-modal');hideHalModal('vehicle-info-modal');hideHalModal('void-sale-modal')}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideHalModal('inventory-edit-modal');hideHalModal('vehicle-info-modal');hideHalModal('void-sale-modal');hideHalModal('unbook-modal')}});
 // 11I. SALES: VIN CHECK, SUBMISSION, AND RECENT SALES
 // Fetch vehicle details from the same inventory API/database when the VIN is entered.
 let saleVinLookupTimer=null, saleVinLookupSequence=0, saleVehicleReady=false;
@@ -1413,11 +1427,23 @@ async function loadBookings(){
     body.innerHTML=rows.map(b=>{const v=byVin.get(b.chassis_number);return `<tr><td><div class="font-bold">${esc(v?`${v.brand} ${v.model}`:'Vehicle')}</div><div class="text-xs muted">${esc(b.chassis_number)}</div></td><td>${esc(b.customer_name)}</td><td>${esc(b.customer_phone||'—')}</td><td>${b.booking_amount?money(b.booking_amount):'—'}</td><td>${esc(b.booked_by)}</td><td>${esc((b.booking_date||'').slice(0,10)||'—')}</td><td>${esc(b.notes||'—')}</td><td>${b.photo_url?`<a href="${esc(b.photo_url)}" target="_blank" rel="noopener"><img src="${esc(b.photo_url)}" alt="Booking photo" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:8px"></a>`:'—'}</td><td><button class="btn btn-green text-xs" onclick="sellVehicle('${encodeURIComponent(b.chassis_number)}')">SELL</button> <button class="btn btn-dark text-xs" onclick="cancelBooking(${Number(b.id)})">UNBOOK</button> <button class="btn btn-dark text-xs" onclick="quoteFromBooking(${Number(b.id)})">QUOTATION</button></td></tr>`}).join('');
   }catch(e){body.innerHTML=`<tr><td colspan="9" class="text-rose-600">${esc(e.message)}</td></tr>`;}
 }
-window.cancelBooking=async id=>{
-  if(!confirm('Cancel this booking and return the vehicle to In Stock? The booking record will be preserved.'))return;
-  try{const result=await api(`/bookings/${id}/cancel`,{method:'POST',body:JSON.stringify({})});notify(result.message||'Booking cancelled.');await loadBookings();await loadInventory();}
-  catch(e){notify(e.message,true)}
+window.cancelBooking=id=>{
+  const b=(window.bookingsCache||[]).find(x=>Number(x.id)===Number(id));
+  $('unbook-id').value=String(id);
+  $('unbook-customer').textContent=b?b.customer_name:'Booking #'+id;
+  $('unbook-vin').textContent=b?'VIN / Chassis: '+b.chassis_number:'';
+  showHalModal('unbook-modal');
 };
+function closeUnbookModal(){hideHalModal('unbook-modal')}
+$('unbook-close').addEventListener('click',closeUnbookModal);
+$('unbook-cancel').addEventListener('click',closeUnbookModal);
+$('unbook-modal').addEventListener('click',e=>{if(e.target===$('unbook-modal'))closeUnbookModal()});
+$('unbook-confirm').addEventListener('click',async()=>{
+  const id=$('unbook-id').value,btn=$('unbook-confirm');btn.disabled=true;
+  try{const result=await api(`/bookings/${id}/cancel`,{method:'POST',body:JSON.stringify({})});closeUnbookModal();notify(result.message||'Booking cancelled.');await loadBookings();await loadInventory();}
+  catch(e){notify(e.message,true)}
+  finally{btn.disabled=false}
+});
 $('refresh-bookings').addEventListener('click',loadBookings);
 
 // 11J. BRANCH TRANSFERS AND TRANSFER HISTORY
