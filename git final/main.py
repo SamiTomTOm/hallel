@@ -29,6 +29,9 @@ def migrate_additive_columns():
         "users": {
             "profile_image_url": "TEXT NOT NULL DEFAULT ''",
         },
+        "bookings": {
+            "photo_url": "TEXT NOT NULL DEFAULT ''",
+        },
         "inventory": {
             "has_accessories": "BOOLEAN NOT NULL DEFAULT FALSE",
             "customer_name": "VARCHAR(150) NOT NULL DEFAULT ''",
@@ -194,6 +197,15 @@ class BookingCreate(BaseModel):
     booked_by: str = Field(min_length=1, max_length=80)
     booking_amount: float = Field(default=0, ge=0)
     notes: str = Field(default="", max_length=2000)
+    photo_url: str = Field(default="", max_length=1000)
+
+
+def clean_photo_url(url: str) -> str:
+    """Optional booking photo: must be an image uploaded to our Cloudinary account (or empty)."""
+    url = (url or "").strip()
+    if url and (not url.startswith("https://res.cloudinary.com/") or "/image/upload/" not in url):
+        raise HTTPException(status_code=400, detail="Please provide a valid uploaded photo.")
+    return url
 
 
 class TransferCreate(BaseModel):
@@ -345,7 +357,8 @@ def telegram_execute(kind: str, username: str, p: dict):
         if kind == "sale":
             data = SaleCreate(chassis_number=p["vin"], customer_name=p["customer"], contact_info=p["phone"],
                               sale_price=p["amount"], payment_method=p["payment"], bank_name=p["bank"],
-                              sold_by=user.username, notes=note)
+                              sold_by=user.username, notes=note,
+                              commission=p.get("commission") or "No commission")
             create_sale(data, db, user)
             return True, "Sale saved in the system."
         data = BookingCreate(chassis_number=p["vin"], customer_name=p["customer"], customer_phone=p["phone"],
@@ -416,6 +429,21 @@ def cloudinary_profile_signature(user: models.User = Depends(get_current_user)):
     timestamp = int(time.time())
     folder = "hallel/profiles"
     public_id = f"user_{user.id}"
+    params = f"folder={folder}&public_id={public_id}&timestamp={timestamp}"
+    signature = hashlib.sha1((params + api_secret).encode("utf-8")).hexdigest()
+    return {"cloud_name": cloud_name, "api_key": api_key, "timestamp": timestamp, "folder": folder, "public_id": public_id, "signature": signature}
+
+@app.post("/bookings/photo-signature")
+def booking_photo_signature(user: models.User = Depends(require_roles("admin", "salesperson", "management"))):
+    """Signed parameters so the browser can upload an optional booking photo straight to Cloudinary."""
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME", "").strip()
+    api_key = os.getenv("CLOUDINARY_API_KEY", "").strip()
+    api_secret = os.getenv("CLOUDINARY_API_SECRET", "").strip()
+    if not all((cloud_name, api_key, api_secret)):
+        raise HTTPException(status_code=503, detail="Photo upload is not configured on the server.")
+    timestamp = int(time.time())
+    folder = "hallel/bookings"
+    public_id = f"booking_{timestamp}_{user.id}_{secrets.token_hex(3)}"
     params = f"folder={folder}&public_id={public_id}&timestamp={timestamp}"
     signature = hashlib.sha1((params + api_secret).encode("utf-8")).hexdigest()
     return {"cloud_name": cloud_name, "api_key": api_key, "timestamp": timestamp, "folder": folder, "public_id": public_id, "signature": signature}
@@ -806,6 +834,7 @@ def create_booking(
         booked_by=data.booked_by.strip() or user.username,
         booking_amount=data.booking_amount,
         notes=data.notes.strip(),
+        photo_url=clean_photo_url(data.photo_url),
         status="Booked"
     )
 
@@ -815,7 +844,7 @@ def create_booking(
     db.flush()
     log_activity(db, user, "VEHICLE_BOOKED", "Booking", booking.id, vehicle.chassis_number,
                  f"Booked for {booking.customer_name}", old_values={"vehicle_status": "In Stock"},
-                 new_values={"vehicle_status": "Booked", "customer_name": booking.customer_name, "booked_by": booking.booked_by, "booking_amount": booking.booking_amount})
+                 new_values={"vehicle_status": "Booked", "customer_name": booking.customer_name, "booked_by": booking.booked_by, "booking_amount": booking.booking_amount, "has_photo": bool(booking.photo_url)})
     create_event_notifications(
         db, user, "booking", "New vehicle booking",
         f"{booking.customer_name} · {vehicle.brand} {vehicle.model} · {vehicle.chassis_number[-4:]} · {booking.booked_by}",
@@ -866,6 +895,7 @@ def list_bookings(
             "booking_amount": b.booking_amount,
             "booking_date": b.booking_date.isoformat(),
             "notes": b.notes,
+            "photo_url": b.photo_url or "",
             "status": b.status
         }
         for b in bookings

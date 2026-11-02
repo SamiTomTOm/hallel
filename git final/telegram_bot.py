@@ -246,7 +246,90 @@ HELP = ("Hallel Inventory bot\n\nPost the receipt photo with this caption (as yo
         "Bank prosses bz3x\nChassis 5722\nPrice 7,800,000\nWith commission\nAwash\n\n"
         "Cash: 'Cash prosses wuling / Chassis 5490 / Price 6,400,000'\n"
         "Booking: 'Booked bz3x / Chassis 5722 / Deposit 100,000'\n\n"
-        "I show a summary; tap Confirm to save. /myid shows your Telegram id.")
+        "I show a summary; tap Confirm to save.\n\n"
+        "Other commands:\n"
+        "stock bz3x  - what is in stock (model, color or branch; or just 'stock')\n"
+        "summary  - today's sales and bookings\n"
+        "/myid shows your Telegram id.")
+
+
+# ------------------------------------------------------------------ stock lookup and daily summary
+def stock_text(vehicles: list, query: str = "") -> str:
+    """vehicles: dicts with brand, model, year, color, store, chassis_number (all 'In Stock')."""
+    words = [w for w in re.split(r"\s+", (query or "").lower()) if w]
+    pick = [v for v in vehicles if all(w in f"{v.get('brand','')} {v.get('model','')} {v.get('year','')} {v.get('color','')} {v.get('store','')}".lower() for w in words)]
+    if not pick:
+        return f"No '{query}' in stock right now." if words else "Nothing in stock."
+    groups = {}
+    for v in pick:
+        key = " ".join(str(x) for x in (v.get("brand"), v.get("model")) if x) or "Unknown"
+        groups.setdefault(key, []).append(v)
+    lines = [f"In stock{(' - ' + query) if words else ''}: {len(pick)} car(s)"]
+    shown = 0
+    for name, items in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        lines.append(f"\n{name} ({len(items)})")
+        for v in items:
+            if shown >= 25:
+                break
+            lines.append(f"- {v.get('year') or ''} {v.get('color') or ''} | {v.get('store') or ''} | ...{str(v.get('chassis_number',''))[-4:]}".replace("  ", " "))
+            shown += 1
+    if shown < len(pick):
+        lines.append(f"\n...and {len(pick) - shown} more. Add a model or color to narrow it down.")
+    return "\n".join(lines)
+
+
+def summary_lines(day_label: str, sales: list, bookings: list, in_stock: int, booked: int) -> str:
+    """sales: dicts sold_by, sale_price, commission ; bookings: dicts booking_amount."""
+    total = sum(float(s.get("sale_price") or 0) for s in sales)
+    lines = [f"Hallel daily summary - {day_label}", "", f"Sales today: {len(sales)}" + (f" | total {total:,.0f}" if sales else "")]
+    by = {}
+    for s in sales:
+        r = by.setdefault(s.get("sold_by") or "?", [0, 0.0]); r[0] += 1; r[1] += float(s.get("sale_price") or 0)
+    for name, (n, amt) in sorted(by.items(), key=lambda kv: -kv[1][0]):
+        lines.append(f"  - {name}: {n} ({amt:,.0f})")
+    withc = sum(1 for s in sales if "commission" in (s.get("commission") or "").lower() and not (s.get("commission") or "").lower().startswith("no"))
+    nocom = sum(1 for s in sales if (s.get("commission") or "").lower().startswith("no"))
+    if withc or nocom:
+        lines.append(f"  Commission: {withc} with, {nocom} without")
+    dep = sum(float(b.get("booking_amount") or 0) for b in bookings)
+    lines.append(f"Bookings today: {len(bookings)}" + (f" | deposits {dep:,.0f}" if bookings else ""))
+    lines.append(f"In stock: {in_stock} | Booked: {booked}")
+    return "\n".join(lines)
+
+
+def _vehicle_rows(db) -> list:
+    import models
+    rows = db.query(models.Vehicle).filter(models.Vehicle.status == "In Stock").all()
+    return [{"brand": v.brand, "model": v.model, "year": v.year, "color": v.color, "store": v.store, "chassis_number": v.chassis_number} for v in rows]
+
+
+def summary_text(db) -> str:
+    """Today's figures (Nairobi time, UTC+3) as one message."""
+    import models
+    from datetime import datetime, timedelta
+    off = timedelta(hours=3)
+    local = datetime.utcnow() + off
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0) - off
+    end = start + timedelta(days=1)
+    sales = db.query(models.Sale).filter(models.Sale.status != "Voided", models.Sale.sold_at >= start, models.Sale.sold_at < end).all()
+    books = db.query(models.Booking).filter(models.Booking.booking_date >= start, models.Booking.booking_date < end).all()
+    in_stock = db.query(models.Vehicle).filter(models.Vehicle.status == "In Stock").count()
+    booked = db.query(models.Vehicle).filter(models.Vehicle.status == "Booked").count()
+    return summary_lines(local.strftime("%d %b %Y"),
+                         [{"sold_by": s.sold_by, "sale_price": s.sale_price, "commission": s.commission} for s in sales],
+                         [{"booking_amount": b.booking_amount} for b in books], in_stock, booked)
+
+
+def cron_key() -> str:
+    import hashlib
+    return hashlib.sha256(("hallel-cron:" + _token()).encode()).hexdigest()[:24]
+
+
+def broadcast(text: str) -> int:
+    n = 0
+    for g in sorted(groups_all()):
+        if _say(g, text): n += 1
+    return n
 
 
 # ------------------------------------------------------------------ update handling
@@ -334,6 +417,21 @@ def _handle_message(msg: dict, find_vehicle, execute):
         _say(chat_id, HELP, msg.get("message_id")); return
 
     user = staff_map().get(sid)
+    if cmd in ("stock", "/stock", "summary", "/summary"):
+        if not user:
+            return  # only linked staff get answers
+        try:
+            db = _db()
+            try:
+                if cmd.endswith("summary"):
+                    _say(chat_id, summary_text(db), msg.get("message_id"))
+                else:
+                    query = text.split(None, 1)[1] if len(text.split(None, 1)) > 1 else ""
+                    _say(chat_id, stock_text(_vehicle_rows(db), query), msg.get("message_id"))
+            finally: db.close()
+        except Exception as e:
+            _say(chat_id, f"Could not read the system: {e}", msg.get("message_id"))
+        return
     parsed = parse(text, find_vehicle)
     if not parsed: return
     if not user:

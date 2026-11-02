@@ -792,7 +792,7 @@ body{background-attachment:fixed!important}
   <!-- SECTION 7: BOOKED VEHICLES PAGE -->
   <section id="tab-bookings" class="tab-content hidden space-y-5">
     <div class="flex flex-wrap items-end justify-between gap-3"><button id="refresh-bookings" type="button" class="btn btn-dark">Refresh bookings</button></div>
-    <div class="panel p-5"><h3 class="font-bold text-lg mb-3">Active bookings</h3><div class="table-wrap"><table class="w-full"><thead><tr><th>Vehicle / VIN</th><th>Customer</th><th>Phone</th><th>Booking amount</th><th>Booked by</th><th>Date</th><th>Notes</th><th>Action</th></tr></thead><tbody id="bookings-body"><tr><td colspan="8" class="muted">Loading bookings…</td></tr></tbody></table></div><p id="bookings-empty" class="muted text-sm mt-3 hidden">There are no active bookings.</p></div>
+    <div class="panel p-5"><h3 class="font-bold text-lg mb-3">Active bookings</h3><div class="table-wrap"><table class="w-full"><thead><tr><th>Vehicle / VIN</th><th>Customer</th><th>Phone</th><th>Booking amount</th><th>Booked by</th><th>Date</th><th>Notes</th><th>Photo</th><th>Action</th></tr></thead><tbody id="bookings-body"><tr><td colspan="9" class="muted">Loading bookings…</td></tr></tbody></table></div><p id="bookings-empty" class="muted text-sm mt-3 hidden">There are no active bookings.</p></div>
   </section>
   <!-- SECTION 8: BRANCH TRANSFERS PAGE -->
   <section id="tab-transfers" class="tab-content hidden space-y-5"><div class="grid grid-cols-1 lg:grid-cols-2 gap-5"><form id="transfer-form" class="panel p-5 space-y-4"><div><label class="field-label">VIN / Chassis number *</label><input id="transfer-vin" required></div><div><label class="field-label">From branch *</label><select id="transfer-from" required><option value="">Select source</option><option>Store</option><option>Meskel Flower</option><option>Atlas</option><option>Atlas Moges Branch</option></select></div><div><label class="field-label">To branch *</label><select id="transfer-to" required><option value="">Select destination</option><option>Store</option><option>Meskel Flower</option><option>Atlas</option><option>Atlas Moges Branch</option></select></div><div><label class="field-label">Transferred by *</label><input id="transfer-by" required></div><div><label class="field-label">Notes</label><textarea id="transfer-notes" rows="2"></textarea></div><button class="btn btn-green w-full" type="submit">Record transfer</button></form><div class="panel p-5"><h3 class="font-bold text-lg">Recent transfers</h3><div id="recent-transfers" class="space-y-3 mt-4"><p class="muted text-sm">Loading…</p></div></div></div></section>
@@ -913,6 +913,7 @@ body{background-attachment:fixed!important}
       <div><label class="field-label" for="booking-booked-by">Booked by *</label><input id="booking-booked-by" required></div>
       <div><label class="field-label" for="booking-date">Booking date *</label><input id="booking-date" type="date" required></div>
       <div class="sm:col-span-2"><label class="field-label" for="booking-notes">Notes</label><textarea id="booking-notes" rows="3" placeholder="Optional details or follow-up notes"></textarea></div>
+      <div class="sm:col-span-2"><label class="field-label" for="booking-photo">Photo (optional)</label><input id="booking-photo" type="file" accept="image/*"><img id="booking-photo-preview" alt="Preview" class="hidden mt-2" style="max-height:120px;border-radius:10px"><p class="text-xs muted mt-1">Deposit receipt, ID or car photo. Max 5 MB.</p></div>
       <div class="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2"><button type="button" id="cancel-booking-modal" class="btn btn-dark">Cancel</button><button type="submit" id="save-booking-btn" class="btn btn-green">Confirm booking</button></div>
     </form>
   </div>
@@ -1348,6 +1349,7 @@ window.openBooking=async encodedVin=>{
   $('booking-booked-by').value=currentUser.username||'';
   $('booking-date').value=new Date().toLocaleDateString('en-CA');
   $('booking-notes').value='';
+  $('booking-photo').value='';$('booking-photo-preview').classList.add('hidden');
   $('booking-modal').classList.remove('hidden');
   $('booking-modal').classList.add('flex');
   setTimeout(()=>$('booking-customer-name').focus(),50);
@@ -1360,6 +1362,12 @@ function closeBookingModal(){
 $('close-booking-modal').addEventListener('click',closeBookingModal);
 $('cancel-booking-modal').addEventListener('click',closeBookingModal);
 $('booking-modal').addEventListener('click',e=>{if(e.target===$('booking-modal'))closeBookingModal()});
+$('booking-photo').addEventListener('change',()=>{
+  const f=$('booking-photo').files[0],pv=$('booking-photo-preview');
+  if(!f){pv.classList.add('hidden');return}
+  if(!f.type.startsWith('image/')||f.size>5*1024*1024){notify('Choose an image file under 5 MB.',true);$('booking-photo').value='';pv.classList.add('hidden');return}
+  pv.src=URL.createObjectURL(f);pv.classList.remove('hidden');
+});
 $('booking-form').addEventListener('submit',async e=>{
   e.preventDefault();
   if(!canSell()){notify('You do not have permission to book vehicles.',true);return}
@@ -1369,6 +1377,18 @@ $('booking-form').addEventListener('submit',async e=>{
   const btn=$('save-booking-btn');btn.disabled=true;
   try{
     const bookingDate=$('booking-date').value;
+    let photoUrl='';
+    const photoFile=$('booking-photo').files[0];
+    if(photoFile){
+      btn.textContent='Uploading photo…';
+      const signed=await api('/bookings/photo-signature',{method:'POST'});
+      const form=new FormData();form.append('file',photoFile);form.append('api_key',signed.api_key);
+      form.append('timestamp',String(signed.timestamp));form.append('folder',signed.folder);
+      form.append('public_id',signed.public_id);form.append('signature',signed.signature);
+      const up=await fetch(`https://api.cloudinary.com/v1_1/${signed.cloud_name}/image/upload`,{method:'POST',body:form});
+      const uploaded=await up.json();if(!up.ok)throw new Error(uploaded.error?.message||'Photo upload failed.');
+      photoUrl=uploaded.secure_url;
+    }
     const payload={
       chassis_number:$('booking-vin').value.trim().toUpperCase(),
       customer_name:$('booking-customer-name').value.trim(),
@@ -1376,21 +1396,22 @@ $('booking-form').addEventListener('submit',async e=>{
       booked_by:$('booking-booked-by').value.trim()||currentUser.username,
       booking_amount:amount,
       booking_date:bookingDate?new Date(bookingDate+'T12:00:00').toISOString():null,
-      notes:$('booking-notes').value.trim()
+      notes:$('booking-notes').value.trim(),
+      photo_url:photoUrl
     };
     await api('/bookings',{method:'POST',body:JSON.stringify(payload)});
     closeBookingModal();notify('Vehicle booked successfully.');await loadInventory();await loadBookings();
   }catch(err){notify(err.message,true)}
-  finally{btn.disabled=false}
+  finally{btn.disabled=false;btn.textContent='Confirm booking'}
 });
 async function loadBookings(){
   const body=$('bookings-body');if(!body)return;
   try{
     const rows=await api('/bookings?limit=500');window.bookingsCache=rows;
-    if(!rows.length){body.innerHTML='<tr><td colspan="8" class="muted">No active bookings.</td></tr>';return}
+    if(!rows.length){body.innerHTML='<tr><td colspan="9" class="muted">No active bookings.</td></tr>';return}
     const vehicles=await api('/inventory');const byVin=new Map(vehicles.map(v=>[v.chassis_number,v]));
-    body.innerHTML=rows.map(b=>{const v=byVin.get(b.chassis_number);return `<tr><td><div class="font-bold">${esc(v?`${v.brand} ${v.model}`:'Vehicle')}</div><div class="text-xs muted">${esc(b.chassis_number)}</div></td><td>${esc(b.customer_name)}</td><td>${esc(b.customer_phone||'—')}</td><td>${b.booking_amount?money(b.booking_amount):'—'}</td><td>${esc(b.booked_by)}</td><td>${esc((b.booking_date||'').slice(0,10)||'—')}</td><td>${esc(b.notes||'—')}</td><td><button class="btn btn-green text-xs" onclick="sellVehicle('${encodeURIComponent(b.chassis_number)}')">SELL</button> <button class="btn btn-dark text-xs" onclick="cancelBooking(${Number(b.id)})">UNBOOK</button> <button class="btn btn-dark text-xs" onclick="quoteFromBooking(${Number(b.id)})">QUOTATION</button></td></tr>`}).join('');
-  }catch(e){body.innerHTML=`<tr><td colspan="8" class="text-rose-600">${esc(e.message)}</td></tr>`;}
+    body.innerHTML=rows.map(b=>{const v=byVin.get(b.chassis_number);return `<tr><td><div class="font-bold">${esc(v?`${v.brand} ${v.model}`:'Vehicle')}</div><div class="text-xs muted">${esc(b.chassis_number)}</div></td><td>${esc(b.customer_name)}</td><td>${esc(b.customer_phone||'—')}</td><td>${b.booking_amount?money(b.booking_amount):'—'}</td><td>${esc(b.booked_by)}</td><td>${esc((b.booking_date||'').slice(0,10)||'—')}</td><td>${esc(b.notes||'—')}</td><td>${b.photo_url?`<a href="${esc(b.photo_url)}" target="_blank" rel="noopener"><img src="${esc(b.photo_url)}" alt="Booking photo" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:8px"></a>`:'—'}</td><td><button class="btn btn-green text-xs" onclick="sellVehicle('${encodeURIComponent(b.chassis_number)}')">SELL</button> <button class="btn btn-dark text-xs" onclick="cancelBooking(${Number(b.id)})">UNBOOK</button> <button class="btn btn-dark text-xs" onclick="quoteFromBooking(${Number(b.id)})">QUOTATION</button></td></tr>`}).join('');
+  }catch(e){body.innerHTML=`<tr><td colspan="9" class="text-rose-600">${esc(e.message)}</td></tr>`;}
 }
 window.cancelBooking=async id=>{
   if(!confirm('Cancel this booking and return the vehicle to In Stock? The booking record will be preserved.'))return;

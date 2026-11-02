@@ -123,6 +123,7 @@ class Booking(Base):
     )
     notes = Column(Text, nullable=False, default="")
     status = Column(String(30), nullable=False, default="Booked", index=True)
+    photo_url = Column(Text, nullable=False, default="")  # optional photo (Cloudinary URL): deposit receipt, ID, car, ...
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     vehicle = relationship("Vehicle")

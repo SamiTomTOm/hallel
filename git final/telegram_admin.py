@@ -1,9 +1,10 @@
 """Staff-accounts page support for the Telegram bot: connected groups and staff links.
 Kept in its own file so main.py stays small. main.py calls register(app, ...) once."""
+import os
 import secrets
 from datetime import datetime, timedelta
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -63,3 +64,12 @@ def register(app, get_db, require_roles, log_activity):
         db.delete(row)
         db.commit()
         return {"message": "Group disconnected."}
+
+    @app.get("/telegram/daily-summary")
+    def telegram_daily_summary(request: Request, key: str = "", db: Session = Depends(get_db)):
+        """Called every evening by the Vercel cron (see vercel.json). Posts today's figures to the connected groups."""
+        cron = os.getenv("CRON_SECRET", "")
+        if key != tgbot.cron_key() and not (cron and request.headers.get("authorization") == f"Bearer {cron}"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+        sent = tgbot.broadcast(tgbot.summary_text(db))
+        return {"sent_to_groups": sent}
