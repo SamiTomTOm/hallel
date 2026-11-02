@@ -690,6 +690,7 @@ body{background-attachment:fixed!important}
 <button type="button" class="mobile-nav-btn mobile-nav-scan" id="mobile-scan-btn" aria-label="Scan VIN"><span class="mobile-nav-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M4 12h16"/></svg></span><span>Scan</span></button>
 <button type="button" class="mobile-nav-btn" data-mobile-tab="sales" aria-label="Sales"><span class="mobile-nav-icon" aria-hidden="true">＄</span><span>Sales</span></button>
 <button type="button" class="mobile-nav-btn" data-mobile-tab="bookings" aria-label="Bookings"><span class="mobile-nav-icon" aria-hidden="true">▣</span><span>Bookings</span></button>
+<button type="button" class="mobile-nav-btn" id="mobile-more-toggle" aria-label="More menu" aria-expanded="false"><span class="mobile-nav-icon" aria-hidden="true">•••</span><span>More</span></button>
 </nav>
 <div id="mobile-more-backdrop" class="mobile-more-backdrop hidden"></div>
 <section id="mobile-more-menu" class="mobile-more-menu hidden" aria-label="More menu">
@@ -2426,5 +2427,196 @@ if(authToken)startApp();else setLoggedIn(false);
 })();
 </script>
 
+
+<style id="hallel-tablet-interaction-recovery">
+/* Tablet interaction recovery: keep the navigation and content above decorative glass layers. */
+@media (min-width: 768px) and (max-width: 1100px) {
+  #app main {
+    display: grid !important;
+    grid-template-columns: 190px minmax(0, 1fr) !important;
+    align-items: start !important;
+    gap: 16px !important;
+    position: relative !important;
+    isolation: isolate !important;
+  }
+  #app main > #nav {
+    grid-column: 1 !important;
+    grid-row: 1 / span 20 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    position: sticky !important;
+    top: 92px !important;
+    align-self: start !important;
+    z-index: 1000 !important;
+    pointer-events: auto !important;
+    touch-action: manipulation !important;
+  }
+  #app main > #alert,
+  #app main > .tab-content {
+    grid-column: 2 !important;
+    position: relative !important;
+    z-index: 1 !important;
+    min-width: 0 !important;
+    pointer-events: auto !important;
+  }
+  #nav::before, #nav::after,
+  #nav .nav-btn::before, #nav .nav-btn::after,
+  #nav .nav-toggle::before, #nav .nav-toggle::after {
+    pointer-events: none !important;
+  }
+  #nav .nav-btn, #nav .nav-toggle {
+    position: relative !important;
+    z-index: 2 !important;
+    pointer-events: auto !important;
+    touch-action: manipulation !important;
+    cursor: pointer !important;
+  }
+  #app main .tab-content button,
+  #app main .tab-content a,
+  #app main .tab-content [role="button"] {
+    pointer-events: auto !important;
+    touch-action: manipulation !important;
+  }
+  #inventory-body button[onclick*="openVehicleInfo"],
+  #activity-logs-body button[onclick*="openHistoryFromLog"] {
+    position: relative !important;
+    z-index: 3 !important;
+    pointer-events: auto !important;
+    touch-action: manipulation !important;
+  }
+}
+</style>
+<script id="hallel-tablet-interaction-recovery-js">
+(function(){
+  if (window.__hallelTabletInteractionRecovery) return;
+  window.__hallelTabletInteractionRecovery = true;
+
+  // Capture sidebar taps before any layout/decorative handler can swallow them.
+  document.addEventListener('click', function(event){
+    const navButton = event.target && event.target.closest && event.target.closest('#nav .nav-btn[data-tab]');
+    if (!navButton) return;
+    const switcher = window.switchTab || (typeof switchTab === 'function' ? switchTab : null);
+    if (!switcher) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    switcher(navButton.dataset.tab);
+  }, true);
+
+  // VIN links in the inventory table open the existing vehicle-information modal.
+  document.addEventListener('click', function(event){
+    const vinButton = event.target && event.target.closest && event.target.closest('#inventory-body button[onclick*="openVehicleInfo"]');
+    if (!vinButton || typeof window.openVehicleInfo !== 'function') return;
+    const attr = vinButton.getAttribute('onclick') || '';
+    const match = attr.match(/openVehicleInfo\(['"]([^'"]+)['"]\)/);
+    if (!match) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.openVehicleInfo(match[1]);
+  }, true);
+})();
+</script>
+<style id="hallel-cross-device-interaction-repair">
+/* Keep decorative glass layers from intercepting real controls. */
+#app .panel::before,#app .panel::after,#app .stat::before,#app .stat::after,
+#nav::before,#nav::after,#nav .nav-btn::before,#nav .nav-btn::after,
+#nav .nav-toggle::before,#nav .nav-toggle::after{pointer-events:none!important}
+#app header,#app header button,#app header input,#app header a,
+#nav,#nav button,#mobile-bottom-nav,#mobile-bottom-nav button,
+#mobile-more-menu,#mobile-more-menu button,#mobile-more-backdrop,
+#app main .tab-content button,#app main .tab-content a,
+#app main .tab-content input,#app main .tab-content select,
+#app main .tab-content textarea{pointer-events:auto!important}
+#nav,#nav button,#mobile-bottom-nav button,#mobile-more-menu button,
+#global-search-toggle,#notification-bell,#profile-menu-toggle,
+#app main .tab-content button{touch-action:manipulation}
+#nav{z-index:100!important;isolation:isolate}
+#nav .nav-btn,#nav .nav-toggle{position:relative!important;z-index:101!important;cursor:pointer!important}
+#global-search-wrap{position:relative!important;z-index:120!important}
+#global-search-toggle{position:relative!important;z-index:122!important;cursor:pointer!important}
+#notification-area,.profile-menu-wrap{position:relative;z-index:120}
+#mobile-bottom-nav{z-index:200!important;grid-template-columns:repeat(6,minmax(0,1fr))!important;pointer-events:auto!important}
+#mobile-bottom-nav button{position:relative;z-index:201;cursor:pointer}
+#mobile-more-backdrop{z-index:209!important}
+#mobile-more-menu{z-index:210!important}
+#void-sale-modal,#vehicle-info-modal,.hal-modal{z-index:500!important}
+.vehicle-action-link,[data-dashboard-vin],[data-void-sale]{position:relative;z-index:2;cursor:pointer!important;touch-action:manipulation}
+@media(min-width:768px){#app main #nav{position:sticky!important;top:116px!important;align-self:start!important}}
+@media(max-width:767px){#nav{display:none!important}#mobile-bottom-nav{display:grid!important}}
+</style>
+<script id="hallel-cross-device-interaction-repair-js">
+(function(){
+  const $ = id => document.getElementById(id);
+  const root=document.documentElement;
+  function closeMore(){const menu=$('mobile-more-menu'),backdrop=$('mobile-more-backdrop'),toggle=$('mobile-more-toggle');if(menu)menu.classList.add('hidden');if(backdrop)backdrop.classList.add('hidden');if(toggle)toggle.setAttribute('aria-expanded','false');document.body.classList.remove('mobile-more-open')}
+  function openMore(){const menu=$('mobile-more-menu'),backdrop=$('mobile-more-backdrop'),toggle=$('mobile-more-toggle');if(menu)menu.classList.remove('hidden');if(backdrop)backdrop.classList.remove('hidden');if(toggle)toggle.setAttribute('aria-expanded','true');document.body.classList.add('mobile-more-open')}
+  function toggleSidebar(){const button=$('nav-toggle');const collapsed=!root.classList.contains('nav-collapsed');root.classList.toggle('nav-collapsed',collapsed);if(button){button.setAttribute('aria-expanded',String(!collapsed));button.setAttribute('aria-label',collapsed?'Show menu':'Hide menu');button.title=collapsed?'Show menu':'Hide menu';const label=button.querySelector('span');if(label)label.textContent=collapsed?'Show menu':'Hide menu'}try{localStorage.setItem('hallelNavCollapsed',collapsed?'1':'0')}catch(e){}}
+  document.addEventListener('click',function(e){
+    const target=e.target&&e.target.closest?e.target.closest('button,a,[role="button"]'):null;
+    if(!target)return;
+    if(target.id==='nav-toggle'){e.preventDefault();e.stopImmediatePropagation();toggleSidebar();return}
+    if(target.id==='mobile-more-toggle'){e.preventDefault();e.stopImmediatePropagation();$('mobile-more-menu')?.classList.contains('hidden')?openMore():closeMore();return}
+    if(target.id==='mobile-more-close'||target.id==='mobile-more-backdrop'){e.preventDefault();e.stopImmediatePropagation();closeMore();return}
+    if(target.matches('#nav .nav-btn[data-tab]')){const tab=target.dataset.tab;if(typeof window.switchTab==='function'){e.preventDefault();e.stopImmediatePropagation();window.switchTab(tab)}return}
+    if(target.matches('[data-mobile-tab]')){const tab=target.dataset.mobileTab;if(typeof window.switchTab==='function'){e.preventDefault();e.stopImmediatePropagation();closeMore();window.switchTab(tab);if(typeof window.updateMobileNavigation==='function')window.updateMobileNavigation(tab)}return}
+    if(target.id==='global-search-toggle'){e.preventDefault();e.stopImmediatePropagation();const wrap=$('global-search-wrap');wrap?.classList.toggle('is-open');if(wrap?.classList.contains('is-open'))setTimeout(()=>$('global-search')?.focus(),40);return}
+    if(target.matches('#inventory-body button[onclick*="openVehicleInfo"],#inventory-body .vehicle-action-link')){const attr=target.getAttribute('onclick')||'';const match=attr.match(/openVehicleInfo\(['"]([^'"]+)['"]\)/);if(match&&typeof window.openVehicleInfo==='function'){e.preventDefault();e.stopImmediatePropagation();window.openVehicleInfo(match[1])}return}
+    if(target.matches('[data-void-sale]')){if(typeof window.openVoidSaleModal==='function'){e.preventDefault();e.stopImmediatePropagation();window.openVoidSaleModal(target.dataset.voidSale,target)}return}
+  },true);
+  $('mobile-more-backdrop')?.addEventListener('click',closeMore);
+  $('mobile-more-close')?.addEventListener('click',closeMore);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMore()});
+  // Make the existing void-sale modal opener available to delegated tablet/phone clicks.
+  if(typeof openVoidSaleModal==='function')window.openVoidSaleModal=openVoidSaleModal;
+  // VIN buttons rendered later are handled by the delegated listener above.
+})();
+</script>
 </body>
 </html>
+
+<style id="hallel-sidebar-collapse-final-fix">
+/* Reliable collapsible sidebar on desktop and tablet; mobile uses bottom navigation. */
+@media (min-width:768px){
+  #app main{grid-template-columns:205px minmax(0,1fr)!important;align-items:start!important;}
+  #app main #nav{display:flex!important;flex-direction:column!important;grid-column:1!important;grid-row:1 / span 12!important;position:sticky!important;top:116px!important;align-self:start!important;min-width:0;overflow:hidden;}
+  #nav .nav-toggle{display:flex!important;align-items:center;justify-content:flex-start;gap:8px;width:100%;min-height:40px;margin:0 0 8px;padding:9px 12px;border:1px solid #dcebe2;border-radius:11px;background:rgba(232,246,238,.9);color:#087f5b;font-weight:700;font-size:12px;cursor:pointer;}
+  #nav .nav-toggle:before{content:'«';font-size:18px;line-height:1;}
+  html.nav-collapsed #app main{grid-template-columns:68px minmax(0,1fr)!important;}
+  html.nav-collapsed #app main #nav{padding:12px 8px!important;}
+  html.nav-collapsed #nav:before{content:'H'!important;text-align:center;padding:7px 0 12px!important;}
+  html.nav-collapsed #nav .nav-toggle{justify-content:center;padding:9px 0;}
+  html.nav-collapsed #nav .nav-toggle span{display:none!important;}
+  html.nav-collapsed #nav .nav-toggle:before{content:'»';}
+  html.nav-collapsed #nav .nav-btn{font-size:0!important;padding:13px 0!important;display:flex!important;justify-content:center;min-height:44px;}
+  html.nav-collapsed #nav .nav-btn:before{font-size:18px;width:auto;}
+}
+@media(max-width:767px){#nav .nav-toggle{display:none!important}}
+</style>
+<script id="hallel-sidebar-collapse-final-fix-js">
+(function(){
+  const root=document.documentElement, sidebar=document.getElementById('nav'), button=document.getElementById('nav-toggle');
+  if(!sidebar||!button||button.dataset.finalToggleBound==='1')return;
+  button.dataset.finalToggleBound='1';
+  const key='hallelNavCollapsed';
+  function setState(collapsed,save){
+    root.classList.toggle('nav-collapsed',!!collapsed);
+    button.setAttribute('aria-expanded',String(!collapsed));
+    button.setAttribute('aria-label',collapsed?'Show menu':'Hide menu');
+    button.title=collapsed?'Show menu':'Hide menu';
+    const label=button.querySelector('span');
+    if(label)label.textContent=collapsed?'Show menu':'Hide menu';
+    if(save){try{localStorage.setItem(key,collapsed?'1':'0')}catch(e){}}
+  }
+  let initial=null;try{initial=localStorage.getItem(key)}catch(e){}
+  setState(initial===null?false:initial==='1',false);
+  button.addEventListener('click',function(event){
+    event.preventDefault();event.stopPropagation();
+    setState(!root.classList.contains('nav-collapsed'),true);
+  });
+})();
+</script>
+
+
+
+
+
+
