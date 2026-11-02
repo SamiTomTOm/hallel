@@ -135,6 +135,7 @@ def _num(tok: str):
 
 BANKS = ["awash", "cbe", "dashen", "abyssinia", "telebirr", "zemen", "nib", "hibret", "oromia", "wegagen", "enat", "bunna", "berhan", "lion", "amhara", "siinqee"]
 SALE_RE = re.compile(r"\b(sold|sale|sell|prosses|proccess|process|processed|processing)\b", re.I)
+UNBOOK_RE = re.compile(r"\b(unbook|unbooked|unbooking|un-book|cancel(?:led|ed)?\s+(?:the\s+)?book(?:ed|ing)?|release[d]?)\b", re.I)
 BOOK_RE = re.compile(r"\b(book|booked|booking|reserve|reserved|deposit)\b", re.I)
 NOISE = {"bank", "cash", "chassis", "chasis", "vin", "price", "with", "no", "without", "commission", "comission", "and", "the", "a", "birr", "etb",
          "prosses", "proccess", "process", "processed", "processing", "sold", "sale", "sell", "book", "booked", "booking", "reserve", "reserved", "deposit", "to", "for"}
@@ -151,7 +152,8 @@ def parse(text: str, find_vehicles) -> dict:
     text = (text or "").strip()
     if not text: return {}
     body = re.sub(r"^/(\w+)(@\w+)?", lambda m: m.group(1), text)  # '/sold@bot x' -> 'sold x'
-    if BOOK_RE.search(body): kind = "booking"
+    if UNBOOK_RE.search(body): kind = "unbook"
+    elif BOOK_RE.search(body): kind = "booking"
     elif SALE_RE.search(body): kind = "sale"
     else: return {}  # ordinary chat: stay silent
 
@@ -170,6 +172,12 @@ def parse(text: str, find_vehicles) -> dict:
         for tok in work.split():
             c = tok.strip(".,;:()[]")
             if 8 <= len(c) <= 20 and re.search(r"\d", c) and re.search(r"[A-Za-z]", c) and find_vehicles(c.upper()):
+                chassis = c; work = work.replace(tok, " ", 1); break
+    if not chassis:
+        # no keyword: accept a bare 3-6 digit number that matches a car (e.g. "0546 awash bank 8,000,000 booked")
+        for tok in work.split():
+            c = tok.strip(".,;:()[]")
+            if re.fullmatch(r"\d{3,6}", c) and find_vehicles(c.upper()):
                 chassis = c; work = work.replace(tok, " ", 1); break
     if not chassis:
         return {"error": "I could not see the chassis. Write e.g. 'Chassis 5722' (last 4 digits of the VIN)."}
@@ -210,6 +218,8 @@ def parse(text: str, find_vehicles) -> dict:
                   and not _norm(w) == _norm(chassis)]
 
     found = find_vehicles(chassis.upper()) or []
+    if kind == "unbook":
+        found = [v for v in found if v.get("status") == "Booked"] or found
     if kind == "sale":
         live = [v for v in found if v.get("status") in ("In Stock", "Booked")]
         found = live or found
@@ -223,6 +233,11 @@ def parse(text: str, find_vehicles) -> dict:
         lst = "\n".join(f"- {v['chassis_number']} {v.get('brand','')} {v.get('model','')} ({v.get('status','')})" for v in found[:6])
         return {"error": f"More than one car matches '{chassis}'. Add more VIN digits or the model:\n{lst}"}
     v = found[0]
+    if kind == "unbook":
+        if v.get("status") != "Booked":
+            return {"error": f"{v['chassis_number']} is not booked (status: {v.get('status', '')})."}
+        return {"kind": "unbook", "vin": v["chassis_number"], "vehicle": v, "customer": "", "phone": "", "amount": 0,
+                "payment": "", "bank": "", "commission": "", "notes": ""}
     if kind == "sale" and not amount:
         return {"error": "Please include the price, e.g. 'Price 7,800,000'."}
     notes = "Recorded from Telegram group" + (f"; {commission}" if commission else "") + (f"; hint: {' '.join(hint_words)}" if hint_words else "")
@@ -233,6 +248,8 @@ def parse(text: str, find_vehicles) -> dict:
 def _describe(p: dict) -> str:
     v = p["vehicle"]
     car = " ".join(str(x) for x in (v.get("brand"), v.get("model"), v.get("year"), v.get("color")) if x)
+    if p["kind"] == "unbook":
+        return "\n".join(["UNBOOK (return to stock)", f"Car: {car}", f"VIN: {p['vin']}", f"Status now: {v.get('status', '')}"])
     lines = ["SALE" if p["kind"] == "sale" else "BOOKING", f"Car: {car}", f"VIN: {p['vin']}", f"Status now: {v.get('status', '')}",
              f"Customer: {p['customer']}"]
     if p["phone"]: lines.append(f"Phone: {p['phone']}")
@@ -245,10 +262,13 @@ def _describe(p: dict) -> str:
 HELP = ("Hallel Inventory bot\n\nPost the receipt photo with this caption (as you already do):\n"
         "Bank prosses bz3x\nChassis 5722\nPrice 7,800,000\nWith commission\nAwash\n\n"
         "Cash: 'Cash prosses wuling / Chassis 5490 / Price 6,400,000'\n"
-        "Booking: 'Booked bz3x / Chassis 5722 / Deposit 100,000'\n\n"
+        "Booking: 'Booked bz3x / Chassis 5722 / Deposit 100,000'\n"
+        "Unbook: 'Unbook 5722' (a car number alone works too)\n\n"
         "I show a summary; tap Confirm to save.\n\n"
         "Other commands:\n"
-        "stock bz3x  - what is in stock (model, color or branch; or just 'stock')\n"
+        "stock  - how many cars are in stock per category and model\n"
+        "stock bz3x  - the cars of one model, color or branch\n"
+        "stock list  - every car in stock\n"
         "summary  - today's sales and bookings\n"
         "/myid shows your Telegram id.")
 
@@ -278,6 +298,24 @@ def stock_text(vehicles: list, query: str = "") -> str:
     return "\n".join(lines)
 
 
+def stock_overview(vehicles: list, booked: int = 0) -> str:
+    """Counts per category (vehicle_type) and per brand/model for the cars that are In Stock."""
+    if not vehicles:
+        return "Nothing in stock." + (f"\nBooked: {booked}" if booked else "")
+    types = {}
+    for v in vehicles:
+        t = (v.get("vehicle_type") or "Other").strip() or "Other"
+        name = " ".join(str(x) for x in (v.get("brand"), v.get("model")) if x) or "Unknown"
+        types.setdefault(t, {}); types[t][name] = types[t].get(name, 0) + 1
+    lines = [f"In stock: {len(vehicles)} car(s)" + (f" | Booked: {booked}" if booked else "")]
+    for t, models_ in sorted(types.items(), key=lambda kv: -sum(kv[1].values())):
+        lines.append(f"\n{t}: {sum(models_.values())}")
+        for name, n in sorted(models_.items(), key=lambda kv: -kv[1]):
+            lines.append(f"  - {name}: {n}")
+    lines.append("\nSend 'stock <model>' to see the individual cars.")
+    return "\n".join(lines)
+
+
 def summary_lines(day_label: str, sales: list, bookings: list, in_stock: int, booked: int) -> str:
     """sales: dicts sold_by, sale_price, commission ; bookings: dicts booking_amount."""
     total = sum(float(s.get("sale_price") or 0) for s in sales)
@@ -300,7 +338,7 @@ def summary_lines(day_label: str, sales: list, bookings: list, in_stock: int, bo
 def _vehicle_rows(db) -> list:
     import models
     rows = db.query(models.Vehicle).filter(models.Vehicle.status == "In Stock").all()
-    return [{"brand": v.brand, "model": v.model, "year": v.year, "color": v.color, "store": v.store, "chassis_number": v.chassis_number} for v in rows]
+    return [{"brand": v.brand, "model": v.model, "year": v.year, "color": v.color, "store": v.store, "vehicle_type": v.vehicle_type, "chassis_number": v.chassis_number} for v in rows]
 
 
 def summary_text(db) -> str:
@@ -427,7 +465,13 @@ def _handle_message(msg: dict, find_vehicle, execute):
                     _say(chat_id, summary_text(db), msg.get("message_id"))
                 else:
                     query = text.split(None, 1)[1] if len(text.split(None, 1)) > 1 else ""
-                    _say(chat_id, stock_text(_vehicle_rows(db), query), msg.get("message_id"))
+                    if query.strip().lower() in ("", "all categories", "categories", "count", "counts", "summary"):
+                        import models
+                        booked = db.query(models.Vehicle).filter(models.Vehicle.status == "Booked").count()
+                        _say(chat_id, stock_overview(_vehicle_rows(db), booked), msg.get("message_id"))
+                    else:
+                        if query.strip().lower() in ("list", "all"): query = ""
+                        _say(chat_id, stock_text(_vehicle_rows(db), query), msg.get("message_id"))
             finally: db.close()
         except Exception as e:
             _say(chat_id, f"Could not read the system: {e}", msg.get("message_id"))

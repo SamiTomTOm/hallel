@@ -361,6 +361,14 @@ def telegram_execute(kind: str, username: str, p: dict):
                               commission=p.get("commission") or "No commission")
             create_sale(data, db, user)
             return True, "Sale saved in the system."
+        if kind == "unbook":
+            booking = (db.query(models.Booking)
+                       .filter(models.Booking.chassis_number == p["vin"], models.Booking.status == "Booked")
+                       .order_by(models.Booking.id.desc()).first())
+            if not booking:
+                return False, "There is no active booking for this car."
+            cancel_booking(booking.id, db, user)
+            return True, "Booking cancelled; the car is back In Stock."
         data = BookingCreate(chassis_number=p["vin"], customer_name=p["customer"], customer_phone=p["phone"],
                              booked_by=user.username, booking_amount=p["amount"], notes=note)
         create_booking(data, db, user)
