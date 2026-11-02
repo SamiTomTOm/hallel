@@ -317,13 +317,14 @@ telegram_admin.register(app, get_db, require_roles, log_activity)
 
 @app.on_event("startup")
 def create_initial_admin():
-    """Create the first admin only when explicit environment credentials are configured."""
+    """Create the first admin only when explicit environment credentials are configured AND no user exists yet.
+    (Checking by name would recreate the account every time the admin renames themselves.)"""
     username, password = os.getenv("ADMIN_USERNAME"), os.getenv("ADMIN_PASSWORD")
     if not username or not password:
         return
     db = next(get_db())
     try:
-        if not db.query(models.User).filter(models.User.username == username).first():
+        if db.query(models.User).count() == 0:
             db.add(models.User(username=username, password_hash=hash_password(password), role="admin"))
             db.commit()
     finally:
@@ -469,7 +470,11 @@ def update_profile(data: ProfileUpdate, db: Session = Depends(get_db), user: mod
         if url and (not url.startswith("https://res.cloudinary.com/") or "/image/upload/" not in url):
             raise HTTPException(status_code=400, detail="Please provide a valid Cloudinary image URL.")
         user.profile_image_url = url
+    old_username = user.username
     user.username = new_username
+    if old_username != new_username:
+        # keep the Telegram link attached to this same person
+        db.query(models.TelegramLink).filter(models.TelegramLink.username == old_username).update({"username": new_username})
     try:
         db.commit()
         db.refresh(user)
