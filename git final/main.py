@@ -784,7 +784,7 @@ def list_sales(limit: int = 200, db: Session = Depends(get_db), user: models.Use
 
 @app.post("/sales/{sale_id}/void")
 def void_sale(sale_id: int, data: SaleVoidInput, db: Session = Depends(get_db),
-              user: models.User = Depends(require_roles("admin"))):
+              user: models.User = Depends(require_roles("admin", "management"))):
     """Void a sale without deleting its history; restore its vehicle only when safe."""
     try:
         sale = db.query(models.Sale).filter(models.Sale.id == sale_id).with_for_update().first()
